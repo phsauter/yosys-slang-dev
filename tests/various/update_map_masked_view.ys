@@ -1,0 +1,164 @@
+read_slang <<EOF
+module masked_view_gold (
+  input  logic tr_sel,
+  input  logic [1:0] valid,
+  input  logic [1:0][1:0] idx,
+  input  logic [1:0][1:0][1:0][3:0] data,
+  input  logic [1:0][1:0][3:0][1:0][3:0] old,
+  output logic [1:0][1:0][3:0][1:0][3:0] y
+);
+  logic [3:0][1:0][1:0][1:0][3:0] transposed;
+
+  always_comb begin
+    y = old;
+    transposed = old;
+
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        if (valid[n] && !tr_sel) begin
+          y[n][p][idx[n]] = data[n][p];
+        end
+      end
+    end
+
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          if (valid[n] && tr_sel) begin
+            transposed[idx[n]][q][n][p] = data[n][p][q];
+          end
+        end
+      end
+    end
+
+    if (tr_sel) begin
+      y = transposed;
+    end
+  end
+endmodule
+
+module strided_view_gold (
+  input  logic       en,
+  input  logic [1:0] idx,
+  input  logic [1:0][7:0] data,
+  input  logic [3:0][1:0][7:0] old,
+  output logic [3:0][1:0][7:0] y
+);
+  always_comb begin
+    y = old;
+    for (int lane = 0; lane < 2; lane++) begin
+      if (en) begin
+        y[idx][lane] = data[lane];
+      end
+    end
+  end
+endmodule
+
+module overwrite_view_gold (
+  input  logic       en,
+  input  logic [1:0] idx,
+  input  logic [11:0] data,
+  input  logic [3:0][3:0] old,
+  output logic [3:0][3:0] y
+);
+  always_comb begin
+    y = old;
+    if (en) begin
+      y[idx] = data[3:0];
+    end
+    y[0] = data[7:4];
+    if (en && idx == 2'd0) begin
+      y[0] = data[11:8];
+    end
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module masked_view_gate (
+  input  logic tr_sel,
+  input  logic [1:0] valid,
+  input  logic [1:0][1:0] idx,
+  input  logic [1:0][1:0][1:0][3:0] data,
+  input  logic [1:0][1:0][3:0][1:0][3:0] old,
+  output logic [1:0][1:0][3:0][1:0][3:0] y
+);
+  logic [3:0][1:0][1:0][1:0][3:0] transposed;
+
+  always_comb begin
+    y = old;
+    transposed = old;
+
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        if (valid[n] && !tr_sel) begin
+          y[n][p][idx[n]] = data[n][p];
+        end
+      end
+    end
+
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          if (valid[n] && tr_sel) begin
+            transposed[idx[n]][q][n][p] = data[n][p][q];
+          end
+        end
+      end
+    end
+
+    if (tr_sel) begin
+      y = transposed;
+    end
+  end
+endmodule
+
+module strided_view_gate (
+  input  logic       en,
+  input  logic [1:0] idx,
+  input  logic [1:0][7:0] data,
+  input  logic [3:0][1:0][7:0] old,
+  output logic [3:0][1:0][7:0] y
+);
+  always_comb begin
+    y = old;
+    for (int lane = 0; lane < 2; lane++) begin
+      if (en) begin
+        y[idx][lane] = data[lane];
+      end
+    end
+  end
+endmodule
+
+module overwrite_view_gate (
+  input  logic       en,
+  input  logic [1:0] idx,
+  input  logic [11:0] data,
+  input  logic [3:0][3:0] old,
+  output logic [3:0][3:0] y
+);
+  always_comb begin
+    y = old;
+    if (en) begin
+      y[idx] = data[3:0];
+    end
+    y[0] = data[7:4];
+    if (en && idx == 2'd0) begin
+      y[0] = data[11:8];
+    end
+  end
+endmodule
+EOF
+
+proc; opt
+
+miter -equiv -flatten masked_view_gold masked_view_gate masked_view_miter
+sat -verify -prove trigger 0 masked_view_miter
+
+miter -equiv -flatten strided_view_gold strided_view_gate strided_view_miter
+sat -verify -prove trigger 0 strided_view_miter
+
+miter -equiv -flatten overwrite_view_gold overwrite_view_gate overwrite_view_miter
+sat -verify -prove trigger 0 overwrite_view_miter

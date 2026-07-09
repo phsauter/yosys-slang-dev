@@ -175,6 +175,17 @@ SigSpec RTLILBuilder::Mux(SigSpec a, SigSpec b, SigSpec s)
 	return y;
 }
 
+SigSpec RTLILBuilder::Pmux(SigSpec a, SigSpec b, SigSpec s)
+{
+	log_assert(s.size() >= 1);
+	log_assert(b.size() == a.size() * s.size());
+	if (s.size() == 1)
+		return Mux(a, b, s);
+	auto [id, y] = add_y_wire(a.size());
+	bless_cell(canvas->addPmux(id, a, b, s, y));
+	return y;
+}
+
 SigSpec RTLILBuilder::Bwmux(SigSpec a, SigSpec b, SigSpec s)
 {
 	log_assert(a.size() == b.size());

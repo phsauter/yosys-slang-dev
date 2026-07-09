@@ -1,0 +1,73 @@
+logger -expect log "slang-update-map begin module=update_map kind=always_comb" 1
+logger -expect log "slang-update-map root update_map.a" 1
+logger -expect log "slang-update-map update root=update_map.a order=5 guard=foreach dynamic update_map.a selected_width=4" 1
+logger -expect log "slang-update-map root update_map.x" 1
+logger -expect log "slang-update-map update root=update_map.x order=0 guard=root static update_map.x" 1
+logger -expect log "slang-update-map update root=update_map.x order=1 guard=if-true dynamic update_map.x selected_width=1" 1
+logger -expect log "slang-update-map root update_map.y" 1
+logger -expect log "slang-update-map update root=update_map.y order=2 guard=if-false static update_map.y" 1
+logger -expect log "slang-update-map root update_map.z" 1
+logger -expect log "slang-update-map update root=update_map.z order=3 guard=case static update_map.z" 1
+logger -expect log "slang-update-map update root=update_map.z order=4 guard=case-default dynamic update_map.z selected_width=1" 1
+logger -expect log "slang-update-map end module=update_map kind=always_comb" 1
+logger -expect log "slang-symbolic-update check matched write_domains" 1
+logger -expect log "slang-update-map check matched symbolic_updates" 1
+logger -expect log "slang-update-map domain check matched write_domains" 1
+logger -expect log "slang-write-domain check matched all_driven" 1
+
+read_slang --dump-update-map <<EOF
+module update_map (
+  input  logic [7:0] data_i,
+  input  logic [2:0] idx_i,
+  input  logic       en_i,
+  output logic [7:0] x,
+  output logic [7:0] y,
+  output logic [7:0] z,
+  output logic [1:0][3:0] a
+);
+  always_comb begin
+    x = data_i;
+
+    if (en_i)
+      x[idx_i] = data_i[0];
+    else
+      y[3:0] = data_i[3:0];
+
+    case (idx_i[0])
+      1'b0: z[7:4] = data_i[7:4];
+      default: z[idx_i] = data_i[0];
+    endcase
+
+    foreach (a[i])
+      a[i] = data_i[3:0];
+  end
+endmodule
+EOF
+
+design -reset
+
+logger -expect log "slang-update-map begin module=update_map_unsupported kind=always_comb" 1
+logger -expect log "slang-update-map unsupported .* unsupported memory write" 1
+logger -expect log "slang-update-map unsupported .* unsupported nested dynamic lhs" 1
+logger -expect log "slang-update-map unsupported .* unsupported non-fixed-size lhs" 1
+logger -expect log "slang-update-map check skipped unsupported" 1
+logger -expect log "slang-update-map domain check skipped unsupported" 1
+logger -expect log "slang-update-map end module=update_map_unsupported kind=always_comb" 1
+
+read_slang --dump-update-map <<EOF
+module update_map_unsupported (
+  input  logic [1:0] i,
+  input  logic [1:0] j,
+  input  logic [7:0] data_i,
+  output logic [7:0] x
+);
+  logic [7:0] mem [0:3];
+  logic [3:0][3:0] nested;
+
+  always_comb begin
+    mem[i] = data_i;
+    {<<{x}} = data_i;
+    nested[i][j] = 1'b1;
+  end
+endmodule
+EOF

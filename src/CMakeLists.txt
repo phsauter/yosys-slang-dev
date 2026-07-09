@@ -26,6 +26,8 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     lvalue.cc
     memory.h
     naming.cc
+    process_lowering.cc
+    process_lowering.h
     procedural.cc
     slang_frontend.cc
     slang_frontend.h
@@ -33,6 +35,8 @@ add_library(yosys-slang ${LIBRARY_TYPE}
     sva.cc
     variables.cc
     variables.h
+    write_domains.cc
+    write_domains.h
     ${CMAKE_CURRENT_BINARY_DIR}/version.h
 )
 target_include_directories(yosys-slang PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

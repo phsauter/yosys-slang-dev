@@ -37,6 +37,7 @@
 #include "slang_frontend.h"
 #include "diag.h"
 #include "async_pattern.h"
+#include "process_lowering.h"
 #include "variables.h"
 
 #include <cctype>
@@ -46,6 +47,14 @@ namespace slang_frontend {
 
 void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 	cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
+	cmdLine.add("--dump-write-domains", dump_write_domains,
+				"For developers: dump procedural write-domain discovery");
+	cmdLine.add("--dump-symbolic-updates", dump_symbolic_updates,
+				"For developers: dump procedural symbolic update collection");
+	cmdLine.add("--dump-update-map", dump_update_map,
+				"For developers: dump procedural guarded update maps");
+	cmdLine.add("--use-update-map-lowering", use_update_map_lowering,
+				"For developers: lower supported always_comb processes via guarded update maps");
 	cmdLine.add("--no-proc", no_proc, "Disable lowering of processes");
 	cmdLine.add("--keep-hierarchy", keep_hierarchy,
 				"Keep hierarchy (experimental; may crash)");
@@ -458,6 +467,7 @@ void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to)
 	}
 }
 template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const ast::Symbol &from, RTLIL::AttrObject *to);
+template void transfer_attrs<const ast::Statement>(NetlistContext &netlist, const ast::Statement &from, RTLIL::AttrObject *to);
 
 template<typename T>
 void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
@@ -480,72 +490,6 @@ template void transfer_attrs<const ast::Statement>(NetlistContext &netlist, cons
 #include "memory.h"
 
 namespace slang_frontend {
-
-static Yosys::pool<VariableBit> detect_possibly_unassigned_subset(Yosys::pool<VariableBit> &signals, Case *rule, int level=0)
-{
-	Yosys::pool<VariableBit> remaining = signals;
-	bool debug = false;
-
-	for (auto &action : rule->actions) {
-		if (debug) {
-			log_debug("%saction %s<=%s (mask %s)\n", std::string(level, ' ').c_str(),
-					  "FIXME" /* log_signal(action.lvalue) */, log_signal(action.unmasked_rvalue), log_signal(action.mask));
-		}
-
-		if (action.mask.is_fully_ones())
-		for (auto bit : action.lvalue)
-			remaining.erase(bit);
-	}
-
-	for (auto switch_ : rule->switches) {
-		if (debug) {
-			log_debug("%sswitch %s\n", std::string(level, ' ').c_str(), log_signal(switch_->signal));
-		}
-
-		if (remaining.empty())
-			break;
-
-		Yosys::pool<VariableBit> new_remaining;
-		Yosys::BitPatternPool pool(switch_->signal);
-		for (auto case_ : switch_->cases) {
-			if (!switch_->signal.empty() && pool.empty())
-				break;
-
-			if (debug) {
-				log_debug("%s case ", std::string(level, ' ').c_str());
-				for (auto compare : case_->compare)
-					log_debug("%s ", log_signal(compare));
-				log_debug("\n");
-			}
-
-			bool selectable = false;
-			if (case_->compare.empty()) {
-				// we have reached a default, by now we know this case is full
-				selectable = pool.take_all() || switch_->signal.empty();
-			} else {
-				for (auto compare : case_->compare) {
-					if (!compare.is_fully_const()) {
-						if (!pool.empty())
-							selectable = true;
-					} else {
-						if (pool.take(compare))
-							selectable = true;
-					}
-				}
-			}
-
-			if (selectable) {
-				for (auto bit : detect_possibly_unassigned_subset(remaining, case_, level + 2))
-					new_remaining.insert(bit);
-			}
-		}
-
-		if (switch_->full_case || pool.empty())
-			remaining.swap(new_remaining);
-	}
-
-	return remaining;
-}
 
 // extract trigger for side-effect cells like $print, $check
 void ProcessTiming::extract_trigger(NetlistContext &netlist, Yosys::Cell *cell, RTLIL::SigBit enable)
@@ -2219,73 +2163,7 @@ public:
 
 	void handle_comb_like_process(const ast::ProceduralBlockSymbol &symbol, const ast::Statement &body)
 	{
-		RTLIL::Process *proc = netlist.canvas->addProcess(netlist.new_id());
-		transfer_attrs(netlist, body, proc);
-
-		ProceduralContext procedure(netlist, ProcessTiming::implicit);
-		body.visit(StatementExecutor(procedure));
-
-		VariableBits all_driven = procedure.all_driven();
-		Yosys::pool<VariableBit> dangling;
-		if (symbol.procedureKind != ast::ProceduralBlockKind::AlwaysComb) {
-			Yosys::pool<VariableBit> driven_pool = {all_driven.begin(), all_driven.end()};
-			dangling =
-				detect_possibly_unassigned_subset(driven_pool, procedure.root_case.get());
-		}
-
-		// left-hand side and right-hand side of the connections to be made
-		RTLIL::SigSpec cr;
-		VariableBits cl, latch_driven;
-
-		for (auto driven_bit : all_driven) {
-			if (!dangling.count(driven_bit)) {
-				// No latch inferred
-				cl.append(driven_bit);
-				cr.append(procedure.vstate.visible_assignments.at(driven_bit));
-			} else {
-				latch_driven.append(driven_bit);
-			}
-		}
-
-		if (symbol.procedureKind == ast::ProceduralBlockKind::AlwaysLatch && !cl.empty()) {
-			for (auto chunk : cl.chunks()) {
-				auto &diag = netlist.add_diag(diag::LatchNotInferred, symbol.location);
-				diag << chunk.text();
-			}
-		}
-
-		if (!latch_driven.empty()) {
-			// map from a driven signal to the corresponding enable/staging signal
-			// TODO: SigSig needlessly costly here
-			Yosys::dict<VariableBit, RTLIL::SigSig> signaling;
-			RTLIL::SigSpec enables, all_staging;
-
-			latch_driven.sort_and_unify();
-			for (auto chunk : latch_driven.chunks()) {
-				RTLIL::SigSpec en = netlist.add_placeholder_signal(chunk.bitwidth());
-				RTLIL::SigSpec staging = netlist.add_placeholder_signal(chunk.bitwidth());
-
-				for (uint64_t i = 0; i < chunk.bitwidth(); i++) {
-					RTLIL::Cell *cell = netlist.canvas->addDlatch(netlist.new_id(), en[i],
-											staging[i], netlist.convert_static(chunk[i]), true);
-					netlist.driven_variables.insert(chunk[i]);
-					netlist.register_driven_variables.insert(chunk[i]);
-					transfer_attrs(netlist, symbol, cell);
-					signaling[chunk[i]] = {en[i], staging[i]};
-				}
-				enables.append(en);
-				all_staging.append(staging);
-			}
-
-			procedure.root_case->aux_actions.push_back(
-						{enables, RTLIL::SigSpec(RTLIL::S0, enables.size())});
-			procedure.root_case->aux_actions.push_back(
-						{all_staging, RTLIL::SigSpec(RTLIL::Sx, all_staging.size())});
-			procedure.root_case->insert_latch_signaling(netlist, signaling);
-		}
-
-		procedure.copy_case_tree_into(proc->root_case);
-		netlist.add_continuous_driver(cl, cr);
+		lower_comb_like_process(netlist, symbol, body);
 	}
 
 	void handle_ff_process(const ast::ProceduralBlockSymbol &symbol,
@@ -2956,7 +2834,15 @@ public:
 									log_abort();
 								}
 							} else {
-								port_sig = submodule.wire(port);
+								RTLIL::IdString port_name = RTLIL::escape_id(Yosys::stringf("%s%s.%s",
+											std::string(conn->port.name).c_str(), hierpath_suffix.c_str(),
+											std::string(port.name).c_str()));
+								RTLIL::Wire *w = submodule.canvas->wire(port_name);
+								if (!w)
+									log_error("Internal frontend error: reused module %s is missing interface port wire %s for %s.%s\n",
+											log_id(submodule.canvas), log_id(port_name),
+											std::string(conn->port.name).c_str(), std::string(port.name).c_str());
+								port_sig = w;
 							}
 
 							ast_invariant(port, port.internalSymbol);

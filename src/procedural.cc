@@ -304,6 +304,112 @@ void ProceduralContext::do_simple_assign(
 	update_variable_state(loc, lvalue, rvalue, RTLIL::SigSpec(RTLIL::S1, rvalue.size()), blocking);
 }
 
+static RTLIL::SigSpec repeat_shape_mask(RTLIL::SigSpec mask, int output_len)
+{
+	RTLIL::SigSpec repeated;
+	while (repeated.size() < output_len) {
+		int remaining = output_len - repeated.size();
+		repeated.append(remaining >= mask.size() ? mask : mask.extract(0, remaining));
+	}
+	return repeated;
+}
+
+bool expand_aggregate_write_impl(LValue &lvalue,
+		RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, RTLIL::SigSpec shape_mask,
+		VariableBits &base_lvalue, RTLIL::SigSpec &base_rvalue,
+		RTLIL::SigSpec &base_mask, RTLIL::SigSpec *base_shape_mask,
+		bool &has_dynamic_select)
+{
+	if (std::holds_alternative<Variable>(lvalue.descriptor)) {
+		base_lvalue = lvalue.evaluate_vbits();
+		base_rvalue = rvalue;
+		base_mask = mask;
+		if (base_shape_mask)
+			*base_shape_mask = shape_mask;
+		return true;
+	}
+
+	if (auto range_sel = std::get_if<LValue::RangeSelect>(&lvalue.descriptor)) {
+		bool dynamic_select = !range_sel->resolver->is_static();
+		if (dynamic_select)
+			has_dynamic_select = true;
+
+		if (range_sel->resolver->stride == lvalue.bitsize) {
+			// Element selects use a decoded write mask into the parent aggregate.
+			RTLIL::SigSpec next_shape = dynamic_select
+					? repeat_shape_mask(shape_mask, range_sel->inner->bitsize)
+					: range_sel->resolver->demux(shape_mask, range_sel->inner->bitsize);
+			return expand_aggregate_write_impl(*range_sel->inner,
+					rvalue.repeat(range_sel->resolver->range.width()),
+					range_sel->resolver->demux(mask, range_sel->inner->bitsize),
+					next_shape, base_lvalue, base_rvalue, base_mask,
+					base_shape_mask, has_dynamic_select);
+		}
+
+		RTLIL::SigSpec next_shape;
+		if (!dynamic_select)
+			next_shape = range_sel->resolver->shift_up(
+					shape_mask, false, range_sel->inner->bitsize);
+		return expand_aggregate_write_impl(*range_sel->inner,
+				range_sel->resolver->shift_up(rvalue, true, range_sel->inner->bitsize),
+				range_sel->resolver->shift_up(mask, false, range_sel->inner->bitsize),
+				next_shape, base_lvalue, base_rvalue, base_mask,
+				base_shape_mask, has_dynamic_select);
+	}
+
+	if (auto member_acc = std::get_if<LValue::MemberAccess>(&lvalue.descriptor)) {
+		uint64_t parent_width = member_acc->inner->bitsize;
+		uint64_t pad = parent_width - lvalue.bitsize - member_acc->base_offset;
+		RTLIL::SigSpec next_shape;
+		if (!shape_mask.empty()) {
+			next_shape = {RTLIL::SigSpec(RTLIL::S0, pad), shape_mask,
+					RTLIL::SigSpec(RTLIL::S0, member_acc->base_offset)};
+		}
+		return expand_aggregate_write_impl(*member_acc->inner,
+				{RTLIL::SigSpec(RTLIL::Sx, pad), rvalue,
+						RTLIL::SigSpec(RTLIL::Sx, member_acc->base_offset)},
+				{RTLIL::SigSpec(RTLIL::S0, pad), mask,
+						RTLIL::SigSpec(RTLIL::S0, member_acc->base_offset)},
+				next_shape, base_lvalue, base_rvalue, base_mask,
+				base_shape_mask, has_dynamic_select);
+	}
+
+	return false;
+}
+
+bool expand_aggregate_write(LValue &lvalue, RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
+		VariableBits &base_lvalue, RTLIL::SigSpec &base_rvalue, RTLIL::SigSpec &base_mask,
+		bool &has_dynamic_select, RTLIL::SigSpec *base_shape_mask)
+{
+	return expand_aggregate_write_impl(lvalue, rvalue, mask, mask,
+			base_lvalue, base_rvalue, base_mask, base_shape_mask, has_dynamic_select);
+}
+
+bool try_aggregate_masked_write(const ast::AssignmentExpression &assign,
+		ProceduralContext &context, LValue &lvalue, RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
+		bool blocking)
+{
+	VariableBits base_lvalue;
+	RTLIL::SigSpec base_rvalue;
+	RTLIL::SigSpec base_mask;
+	bool has_dynamic_select = false;
+
+	if (!expand_aggregate_write(
+				lvalue, rvalue, mask, base_lvalue, base_rvalue, base_mask,
+				has_dynamic_select, nullptr))
+		return false;
+
+	if (!has_dynamic_select)
+		return false;
+
+	if (base_lvalue.bitwidth() <= lvalue.bitsize)
+		return false;
+
+	context.update_variable_state(
+			assign.sourceRange.start(), base_lvalue, base_rvalue, base_mask, blocking);
+	return true;
+}
+
 RTLIL::SigSpec ProceduralContext::substitute_rvalue(VariableBits bits)
 {
 	RTLIL::SigSpec subed;
@@ -349,6 +455,9 @@ void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
 		ProceduralContext &context, LValue &lvalue, RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
 		bool blocking)
 {
+	if (try_aggregate_masked_write(assign, context, lvalue, rvalue, mask, blocking))
+		return;
+
 	if (lvalue.is_static()) {
 		context.update_variable_state(
 				assign.sourceRange.start(), lvalue.evaluate_vbits(), rvalue, mask, blocking);

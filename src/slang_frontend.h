@@ -356,6 +356,7 @@ struct RTLILBuilder {
 	SigSpec LogicOr(SigSpec a, SigSpec b);
 	SigSpec LogicNot(SigSpec a);
 	SigSpec Mux(SigSpec a, SigSpec b, SigSpec s);
+	SigSpec Pmux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bwmux(SigSpec a, SigSpec b, SigSpec s);
 	SigSpec Bmux(SigSpec a, SigSpec s);
 
@@ -453,6 +454,10 @@ SLANG_ENUM(ModuleUniquifyMode, MODULE_UNIQUIFY)
 
 struct SynthesisSettings {
 	std::optional<bool> dump_ast;
+	std::optional<bool> dump_write_domains;
+	std::optional<bool> dump_symbolic_updates;
+	std::optional<bool> dump_update_map;
+	std::optional<bool> use_update_map_lowering;
 	std::optional<bool> no_proc;
 	std::optional<bool> compat_mode;
 	std::optional<bool> keep_hierarchy;
@@ -724,6 +729,21 @@ private:
 		: descriptor(std::move(descriptor)), bitsize(bitsize), static_(static_), contiguous_slice_(contiguous_slice_) {}
 
 	friend void assign_to_lvalue_with_masking(const ast::AssignmentExpression &assign,
+								   ProceduralContext &context, LValue &lvalue,
+								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
+	friend bool expand_aggregate_write(LValue &lvalue,
+								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
+								   VariableBits &base_lvalue, RTLIL::SigSpec &base_rvalue,
+								   RTLIL::SigSpec &base_mask, bool &has_dynamic_select,
+								   RTLIL::SigSpec *base_shape_mask);
+	friend bool expand_aggregate_write_impl(LValue &lvalue,
+								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask,
+								   RTLIL::SigSpec shape_mask,
+								   VariableBits &base_lvalue, RTLIL::SigSpec &base_rvalue,
+								   RTLIL::SigSpec &base_mask,
+								   RTLIL::SigSpec *base_shape_mask,
+								   bool &has_dynamic_select);
+	friend bool try_aggregate_masked_write(const ast::AssignmentExpression &assign,
 								   ProceduralContext &context, LValue &lvalue,
 								   RTLIL::SigSpec rvalue, RTLIL::SigSpec mask, bool blocking);
 };

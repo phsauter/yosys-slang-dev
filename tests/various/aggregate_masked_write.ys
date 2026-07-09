@@ -1,0 +1,286 @@
+read_slang <<SV_EOF
+module agg_ref #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 2,
+  parameter int unsigned P = 2,
+  parameter int unsigned Q = 2,
+  parameter int unsigned W = 4
+)(
+  input  logic [$clog2(M)-1:0] idx_i [N],
+  input  logic [N-1:0][P-1:0] valid_i,
+  input  logic [N-1:0][P-1:0][Q-1:0][W-1:0] data_i,
+  input  logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] old_i,
+  output logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] normal_o,
+  output logic [M-1:0][Q-1:0][N-1:0][P-1:0][W-1:0] transposed_o
+);
+  always_comb begin
+    normal_o = old_i;
+    transposed_o = old_i;
+    for (int n = 0; n < N; n++)
+      for (int p = 0; p < P; p++)
+        for (int m = 0; m < M; m++)
+          if (valid_i[n][p] && idx_i[n] == m)
+            for (int q = 0; q < Q; q++) begin
+              normal_o[n][p][m][q] = data_i[n][p][q];
+              transposed_o[m][q][n][p] = data_i[n][p][q];
+            end
+  end
+endmodule
+
+module agg_nested_write #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 2,
+  parameter int unsigned P = 2,
+  parameter int unsigned Q = 2,
+  parameter int unsigned W = 4
+)(
+  input  logic [$clog2(M)-1:0] idx_i [N],
+  input  logic [N-1:0][P-1:0] valid_i,
+  input  logic [N-1:0][P-1:0][Q-1:0][W-1:0] data_i,
+  input  logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] old_i,
+  output logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] normal_o,
+  output logic [M-1:0][Q-1:0][N-1:0][P-1:0][W-1:0] transposed_o
+);
+  always_comb begin
+    normal_o = old_i;
+    transposed_o = old_i;
+    for (int n = 0; n < N; n++)
+      for (int p = 0; p < P; p++)
+        if (valid_i[n][p])
+          normal_o[n][p][idx_i[n]] = data_i[n][p];
+
+    for (int n = 0; n < N; n++)
+      for (int p = 0; p < P; p++)
+        for (int q = 0; q < Q; q++)
+          if (valid_i[n][p])
+            transposed_o[idx_i[n]][q][n][p] = data_i[n][p][q];
+  end
+endmodule
+SV_EOF
+
+proc; opt
+copy agg_ref agg_gold
+copy agg_nested_write agg_gate
+miter -equiv -flatten agg_gold agg_gate agg_miter
+sat -verify -prove trigger 0 agg_miter
+
+design -reset
+read_slang <<SV_EOF
+module agg_branch_ref #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 2,
+  parameter int unsigned P = 2,
+  parameter int unsigned Q = 2,
+  parameter int unsigned W = 4
+)(
+  input  logic mode_i,
+  input  logic [$clog2(M)-1:0] idx_i [N],
+  input  logic [N-1:0][P-1:0] valid_i,
+  input  logic [N-1:0][P-1:0][Q-1:0][W-1:0] data_i,
+  input  logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] old_i,
+  output logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] out_o
+);
+  logic [M-1:0][Q-1:0][N-1:0][P-1:0][W-1:0] transposed;
+  always_comb begin
+    out_o = old_i;
+    transposed = old_i;
+    for (int n = 0; n < N; n++)
+      for (int p = 0; p < P; p++)
+        for (int m = 0; m < M; m++)
+          if (valid_i[n][p] && idx_i[n] == m)
+            for (int q = 0; q < Q; q++)
+              if (mode_i)
+                transposed[m][q][n][p] = data_i[n][p][q];
+              else
+                out_o[n][p][m][q] = data_i[n][p][q];
+    if (mode_i)
+      out_o = transposed;
+  end
+endmodule
+
+module agg_branch_write #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 2,
+  parameter int unsigned P = 2,
+  parameter int unsigned Q = 2,
+  parameter int unsigned W = 4
+)(
+  input  logic mode_i,
+  input  logic [$clog2(M)-1:0] idx_i [N],
+  input  logic [N-1:0][P-1:0] valid_i,
+  input  logic [N-1:0][P-1:0][Q-1:0][W-1:0] data_i,
+  input  logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] old_i,
+  output logic [N-1:0][P-1:0][M-1:0][Q-1:0][W-1:0] out_o
+);
+  logic [M-1:0][Q-1:0][N-1:0][P-1:0][W-1:0] transposed;
+  always_comb begin
+    out_o = old_i;
+    transposed = old_i;
+    for (int n = 0; n < N; n++)
+      for (int p = 0; p < P; p++)
+        for (int q = 0; q < Q; q++)
+          if (valid_i[n][p] && mode_i)
+            transposed[idx_i[n]][q][n][p] = data_i[n][p][q];
+          else if (valid_i[n][p])
+            out_o[n][p][idx_i[n]][q] = data_i[n][p][q];
+    if (mode_i)
+      out_o = transposed;
+  end
+endmodule
+SV_EOF
+
+proc; opt
+copy agg_branch_ref agg_branch_gold
+copy agg_branch_write agg_branch_gate
+miter -equiv -flatten agg_branch_gold agg_branch_gate agg_branch_miter
+sat -verify -prove trigger 0 agg_branch_miter
+
+design -reset
+read_slang <<SV_EOF
+module agg_suffix_ref #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 2,
+  parameter int unsigned W = 4
+)(
+  input  logic [$clog2(M)-1:0] idx_i [N],
+  input  logic [N-1:0] valid_i,
+  input  logic [N-1:0][1:0] data_i,
+  input  logic [N-1:0][M-1:0][W-1:0] old_i,
+  output logic [N-1:0][M-1:0][W-1:0] out_o
+);
+  always_comb begin
+    out_o = old_i;
+    for (int n = 0; n < N; n++)
+      for (int m = 0; m < M; m++)
+        if (valid_i[n] && idx_i[n] == m)
+          out_o[n][m][2:1] = data_i[n];
+  end
+endmodule
+
+module agg_suffix_write #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 2,
+  parameter int unsigned W = 4
+)(
+  input  logic [$clog2(M)-1:0] idx_i [N],
+  input  logic [N-1:0] valid_i,
+  input  logic [N-1:0][1:0] data_i,
+  input  logic [N-1:0][M-1:0][W-1:0] old_i,
+  output logic [N-1:0][M-1:0][W-1:0] out_o
+);
+  always_comb begin
+    out_o = old_i;
+    for (int n = 0; n < N; n++)
+      if (valid_i[n])
+        out_o[n][idx_i[n]][2:1] = data_i[n];
+  end
+endmodule
+SV_EOF
+
+proc; opt
+copy agg_suffix_ref agg_suffix_gold
+copy agg_suffix_write agg_suffix_gate
+miter -equiv -flatten agg_suffix_gold agg_suffix_gate agg_suffix_miter
+sat -verify -prove trigger 0 agg_suffix_miter
+
+design -reset
+read_slang <<SV_EOF
+module agg_two_dynamic_ref #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 4,
+  parameter int unsigned W = 3
+)(
+  input  logic [$clog2(M)-1:0] idx_m_i,
+  input  logic [$clog2(N)-1:0] idx_n_i,
+  input  logic valid_i,
+  input  logic [W-1:0] data_i,
+  input  logic [M-1:0][N-1:0][W-1:0] old_i,
+  output logic [M-1:0][N-1:0][W-1:0] out_o
+);
+  always_comb begin
+    out_o = old_i;
+    for (int m = 0; m < M; m++)
+      for (int n = 0; n < N; n++)
+        if (valid_i && idx_m_i == m && idx_n_i == n)
+          out_o[m][n] = data_i;
+  end
+endmodule
+
+module agg_two_dynamic_write #(
+  parameter int unsigned M = 4,
+  parameter int unsigned N = 4,
+  parameter int unsigned W = 3
+)(
+  input  logic [$clog2(M)-1:0] idx_m_i,
+  input  logic [$clog2(N)-1:0] idx_n_i,
+  input  logic valid_i,
+  input  logic [W-1:0] data_i,
+  input  logic [M-1:0][N-1:0][W-1:0] old_i,
+  output logic [M-1:0][N-1:0][W-1:0] out_o
+);
+  always_comb begin
+    out_o = old_i;
+    if (valid_i)
+      out_o[idx_m_i][idx_n_i] = data_i;
+  end
+endmodule
+SV_EOF
+
+proc; opt
+copy agg_two_dynamic_ref agg_two_dynamic_gold
+copy agg_two_dynamic_write agg_two_dynamic_gate
+miter -equiv -flatten agg_two_dynamic_gold agg_two_dynamic_gate agg_two_dynamic_miter
+sat -verify -prove trigger 0 agg_two_dynamic_miter
+
+design -reset
+read_slang <<SV_EOF
+module agg_overlap_ref #(
+  parameter int unsigned M = 4,
+  parameter int unsigned W = 5
+)(
+  input  logic [$clog2(M)-1:0] idx_i,
+  input  logic valid_a_i,
+  input  logic valid_b_i,
+  input  logic [W-1:0] data_a_i,
+  input  logic [W-1:0] data_b_i,
+  input  logic [M-1:0][W-1:0] old_i,
+  output logic [M-1:0][W-1:0] out_o
+);
+  always_comb begin
+    out_o = old_i;
+    for (int m = 0; m < M; m++) begin
+      if (valid_a_i && idx_i == m)
+        out_o[m] = data_a_i;
+      if (valid_b_i && idx_i == m)
+        out_o[m] = data_b_i;
+    end
+  end
+endmodule
+
+module agg_overlap_write #(
+  parameter int unsigned M = 4,
+  parameter int unsigned W = 5
+)(
+  input  logic [$clog2(M)-1:0] idx_i,
+  input  logic valid_a_i,
+  input  logic valid_b_i,
+  input  logic [W-1:0] data_a_i,
+  input  logic [W-1:0] data_b_i,
+  input  logic [M-1:0][W-1:0] old_i,
+  output logic [M-1:0][W-1:0] out_o
+);
+  always_comb begin
+    out_o = old_i;
+    if (valid_a_i)
+      out_o[idx_i] = data_a_i;
+    if (valid_b_i)
+      out_o[idx_i] = data_b_i;
+  end
+endmodule
+SV_EOF
+
+proc; opt
+copy agg_overlap_ref agg_overlap_gold
+copy agg_overlap_write agg_overlap_gate
+miter -equiv -flatten agg_overlap_gold agg_overlap_gate agg_overlap_miter
+sat -verify -prove trigger 0 agg_overlap_miter

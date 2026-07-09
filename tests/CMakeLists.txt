@@ -30,8 +30,10 @@ set(ALL_TESTS
     unit/latch.ys
     unit/selftests.tcl
     various/assign_mixing.ys
+    various/aggregate_masked_write.ys
     various/assignment_pattern_lhs.ys
     various/bb_detect.ys
+    various/write_domains.ys
     various/blackbox_scenarios.ys
     various/bus_range.ys
     various/concurrent_assert.ys
@@ -63,10 +65,14 @@ set(ALL_TESTS
     various/regress.ys
     various/stringattrs.ys
     various/stringparams.ys
+    various/symbolic_updates.ys
     various/timescale.ys
     various/top_attr.ys
     various/unknown_cells.ys
     various/toplevel_intf_unsupported.ys
+    various/update_map.ys
+    various/update_map_masked_view.ys
+    various/update_map_lowering.ys
     various/wait_test.ys
     various/expect_test.ys
     various/program_test.ys

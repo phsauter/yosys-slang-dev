@@ -1,0 +1,87 @@
+logger -expect log "slang-symbolic-updates begin module=symbolic_updates kind=always_comb" 1
+logger -expect log "slang-symbolic-update #0 control=root static symbolic_updates.x" 1
+logger -expect log "slang-symbolic-update #1 control=if-true dynamic symbolic_updates.x selected_width=1" 1
+logger -expect log "slang-symbolic-update #2 control=if-false static symbolic_updates.y" 1
+logger -expect log "slang-symbolic-update #3 control=case static symbolic_updates.z" 1
+logger -expect log "slang-symbolic-update #4 control=case-default dynamic symbolic_updates.z selected_width=1" 1
+logger -expect log "slang-symbolic-update #5 control=foreach dynamic symbolic_updates.arr selected_width=4" 1
+logger -expect log "slang-symbolic-updates end module=symbolic_updates kind=always_comb" 1
+logger -expect log "slang-symbolic-update check matched write_domains" 2
+logger -expect log "slang-write-domain check matched all_driven" 2
+
+read_slang --dump-symbolic-updates <<EOF
+module symbolic_updates (
+  input  logic [7:0] a,
+  input  logic [7:0] b,
+  input  logic [2:0] idx,
+  input  logic       en,
+  output logic [7:0] x,
+  output logic [7:0] y,
+  output logic [7:0] z,
+  output logic [1:0][3:0] arr
+);
+  always_comb begin
+    x = a;
+
+    if (en)
+      x[idx] = b[0];
+    else
+      y[3:0] = a[3:0];
+
+    case (idx[0])
+      1'b0: z[7:4] = b[7:4];
+      default: z[idx] = a[0];
+    endcase
+
+    foreach (arr[i])
+      arr[i] = a[3:0];
+  end
+endmodule
+EOF
+
+design -reset
+
+logger -expect log "slang-symbolic-updates begin module=nested_order kind=always_comb" 1
+logger -expect log "slang-symbolic-update #0 control=root static nested_order.y" 1
+logger -expect log "slang-symbolic-update #1 control=root static nested_order.x" 1
+logger -expect log "slang-symbolic-updates end module=nested_order kind=always_comb" 1
+
+read_slang --dump-symbolic-updates <<EOF
+module nested_order (
+  input  logic [7:0] a,
+  output logic [7:0] x,
+  output logic [7:0] y
+);
+  always_comb begin
+    x = (y = a);
+  end
+endmodule
+EOF
+
+design -reset
+
+logger -expect log "slang-symbolic-updates begin module=symbolic_unsupported kind=always_comb" 1
+logger -expect log "slang-symbolic-update .* unsupported memory write" 1
+logger -expect log "slang-symbolic-update .* unsupported nested dynamic lhs" 1
+logger -expect log "slang-symbolic-update .* unsupported non-fixed-size lhs" 1
+logger -expect log "slang-symbolic-update check skipped unsupported" 1
+logger -expect log "slang-write-domain check skipped unsupported" 1
+logger -expect log "slang-symbolic-updates end module=symbolic_unsupported kind=always_comb" 1
+
+read_slang --dump-symbolic-updates <<EOF
+module symbolic_unsupported (
+  input  logic [1:0] i,
+  input  logic [1:0] j,
+  input  logic [7:0] data_i,
+  output logic [7:0] x
+);
+  logic [7:0] mem [0:3];
+  logic [3:0][3:0] nested;
+
+  always_comb begin
+    mem[i] = data_i;
+    {<<{x}} = data_i;
+    nested[i][j] = 1'b1;
+  end
+endmodule
+EOF

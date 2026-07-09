@@ -1,0 +1,1529 @@
+read_slang <<EOF
+module lowering_gold (
+  input  logic [7:0] data_i,
+  input  logic [7:0] old_i,
+  input  logic [2:0] idx_i,
+  input  logic       en_i,
+  output logic [7:0] x,
+  output logic [7:0] y,
+  output logic [7:0] z
+);
+  always_comb begin
+    x = old_i;
+    y = 8'h00;
+    z = old_i;
+
+    x[3:0] = data_i[3:0];
+
+    if (en_i)
+      y[7:4] = data_i[7:4];
+    else
+      y[3:0] = data_i[3:0];
+
+    z[idx_i] = data_i[0];
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module lowering_gate (
+  input  logic [7:0] data_i,
+  input  logic [7:0] old_i,
+  input  logic [2:0] idx_i,
+  input  logic       en_i,
+  output logic [7:0] x,
+  output logic [7:0] y,
+  output logic [7:0] z
+);
+  always_comb begin
+    x = old_i;
+    y = 8'h00;
+    z = old_i;
+
+    x[3:0] = data_i[3:0];
+
+    if (en_i)
+      y[7:4] = data_i[7:4];
+    else
+      y[3:0] = data_i[3:0];
+
+    z[idx_i] = data_i[0];
+  end
+endmodule
+EOF
+
+proc; opt
+miter -equiv -flatten lowering_gold lowering_gate lowering_miter
+sat -verify -prove trigger 0 lowering_miter
+
+design -reset
+
+read_slang <<EOF
+module loop_gold (
+  input  logic [7:0] data_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    y = 8'h00;
+    for (int i = 0; i < 4; i++)
+      y[i] = data_i[i];
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module loop_gate (
+  input  logic [7:0] data_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    y = 8'h00;
+    for (int i = 0; i < 4; i++)
+      y[i] = data_i[i];
+  end
+endmodule
+EOF
+
+proc; opt
+miter -equiv -flatten loop_gold loop_gate loop_miter
+sat -verify -prove trigger 0 loop_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_loop_gold (
+  input  logic [3:0][7:0] in_i,
+  output logic [1:0][3:0][7:0] y
+);
+  logic [1:0][3:0][7:0] tmp;
+
+  always_comb begin
+    tmp = '0;
+    for (int p = 0; p < 2; p++) begin
+      for (int q = 0; q < 4; q++) begin
+        tmp[p][q] = in_i[q] ^ p[7:0];
+      end
+    end
+    y = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_loop_gate (
+  input  logic [3:0][7:0] in_i,
+  output logic [1:0][3:0][7:0] y
+);
+  logic [1:0][3:0][7:0] tmp;
+
+  always_comb begin
+    tmp = '0;
+    for (int p = 0; p < 2; p++) begin
+      for (int q = 0; q < 4; q++) begin
+        tmp[p][q] = in_i[q] ^ p[7:0];
+      end
+    end
+    y = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+miter -equiv -flatten nested_loop_gold nested_loop_gate nested_loop_miter
+sat -verify -prove trigger 0 nested_loop_miter
+
+design -reset
+
+read_slang <<EOF
+module compound_gold (
+  input  logic [1:0][3:0][7:0] in_i,
+  output logic [1:0][7:0] y
+);
+  logic [1:0][7:0] tmp;
+
+  always_comb begin
+    for (int n = 0; n < 2; n++) begin
+      tmp[n] = '0;
+      for (int m = 0; m < 4; m++)
+        tmp[n] |= in_i[n][m];
+    end
+    y = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module compound_gate (
+  input  logic [1:0][3:0][7:0] in_i,
+  output logic [1:0][7:0] y
+);
+  logic [1:0][7:0] tmp;
+
+  always_comb begin
+    for (int n = 0; n < 2; n++) begin
+      tmp[n] = '0;
+      for (int m = 0; m < 4; m++)
+        tmp[n] |= in_i[n][m];
+    end
+    y = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+miter -equiv -flatten compound_gold compound_gate compound_miter
+sat -verify -prove trigger 0 compound_miter
+
+design -reset
+
+read_slang <<EOF
+module priority_chain_gold (
+  input  logic [4:0] req_i,
+  output logic [2:0] sel_o
+);
+  always_comb begin
+    if      (req_i[1]) sel_o = 3'd1;
+    else if (req_i[0]) sel_o = 3'd0;
+    else if (req_i[4]) sel_o = 3'd4;
+    else if (req_i[3]) sel_o = 3'd3;
+    else               sel_o = 3'd2;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module priority_chain_gate (
+  input  logic [4:0] req_i,
+  output logic [2:0] sel_o
+);
+  always_comb begin
+    if      (req_i[1]) sel_o = 3'd1;
+    else if (req_i[0]) sel_o = 3'd0;
+    else if (req_i[4]) sel_o = 3'd4;
+    else if (req_i[3]) sel_o = 3'd3;
+    else               sel_o = 3'd2;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten priority_chain_gold priority_chain_gate priority_chain_miter
+sat -verify -prove trigger 0 priority_chain_miter
+
+design -reset
+
+read_slang <<EOF
+module case_plain_gold (
+  input  logic [1:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    case (op_i)
+      2'd0: y_o = a_i;
+      2'd0: y_o = b_i;
+      2'd1, 2'd2: y_o = a_i ^ b_i;
+      default: y_o = 8'h5a;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module case_plain_gate (
+  input  logic [1:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    case (op_i)
+      2'd0: y_o = a_i;
+      2'd0: y_o = b_i;
+      2'd1, 2'd2: y_o = a_i ^ b_i;
+      default: y_o = 8'h5a;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten case_plain_gold case_plain_gate case_plain_miter
+sat -verify -prove trigger 0 case_plain_miter
+
+design -reset
+
+read_slang <<EOF
+module casez_gold (
+  input  logic [3:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    casez (op_i)
+      4'b1???: y_o = a_i;
+      4'b10??: y_o = b_i;
+      4'b01??: y_o = a_i + b_i;
+      default: y_o = 8'he1;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module casez_gate (
+  input  logic [3:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    casez (op_i)
+      4'b1???: y_o = a_i;
+      4'b10??: y_o = b_i;
+      4'b01??: y_o = a_i + b_i;
+      default: y_o = 8'he1;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten casez_gold casez_gate casez_miter
+sat -verify -prove trigger 0 casez_miter
+
+design -reset
+
+read_slang <<EOF
+module casex_gold (
+  input  logic [3:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    casex (op_i)
+      4'b1x0z: y_o = a_i;
+      4'b0x??: y_o = b_i;
+      default: y_o = a_i - b_i;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module casex_gate (
+  input  logic [3:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    casex (op_i)
+      4'b1x0z: y_o = a_i;
+      4'b0x??: y_o = b_i;
+      default: y_o = a_i - b_i;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten casex_gold casex_gate casex_miter
+sat -verify -prove trigger 0 casex_miter
+
+design -reset
+
+read_slang <<EOF
+module case_inside_gold (
+  input  logic [3:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    case (op_i) inside
+      [4'd0:4'd3]: y_o = a_i;
+      4'd7, [4'd8:4'd10]: y_o = b_i;
+      default: y_o = a_i | b_i;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module case_inside_gate (
+  input  logic [3:0] op_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = 8'h00;
+    case (op_i) inside
+      [4'd0:4'd3]: y_o = a_i;
+      4'd7, [4'd8:4'd10]: y_o = b_i;
+      default: y_o = a_i | b_i;
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten case_inside_gold case_inside_gate case_inside_miter
+sat -verify -prove trigger 0 case_inside_miter
+
+design -reset
+
+read_slang <<EOF
+module case_partial_gold (
+  input  logic [1:0] sel_i,
+  input  logic [7:0] old_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    casez (sel_i)
+      2'b1?: y_o[7:4] = a_i[7:4];
+      2'b?1: y_o[3:0] = b_i[3:0];
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module case_partial_gate (
+  input  logic [1:0] sel_i,
+  input  logic [7:0] old_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    casez (sel_i)
+      2'b1?: y_o[7:4] = a_i[7:4];
+      2'b?1: y_o[3:0] = b_i[3:0];
+    endcase
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten case_partial_gold case_partial_gate case_partial_miter
+sat -verify -prove trigger 0 case_partial_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_dynamic_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic [1:0][1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][1:0][3:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          tmp[n][p][idx_i[n]][q] = data_i[n][p][q] ^ {6'b0, idx_i[n]};
+        end
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_dynamic_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic [1:0][1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][1:0][3:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          tmp[n][p][idx_i[n]][q] = data_i[n][p][q] ^ {6'b0, idx_i[n]};
+        end
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten nested_dynamic_gold nested_dynamic_gate nested_dynamic_miter
+sat -verify -prove trigger 0 nested_dynamic_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_transposed_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic [3:0][1:0][1:0][1:0][7:0] old_i,
+  output logic [3:0][1:0][1:0][1:0][7:0] y_o
+);
+  logic [3:0][1:0][1:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          tmp[idx_i[n]][q][n][p] = data_i[n][p][q];
+        end
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_transposed_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic [3:0][1:0][1:0][1:0][7:0] old_i,
+  output logic [3:0][1:0][1:0][1:0][7:0] y_o
+);
+  logic [3:0][1:0][1:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          tmp[idx_i[n]][q][n][p] = data_i[n][p][q];
+        end
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten nested_transposed_gold nested_transposed_gate nested_transposed_miter
+sat -verify -prove trigger 0 nested_transposed_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_whole_slice_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic [1:0][1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][1:0][3:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        tmp[n][p][idx_i[n]] = data_i[n][p];
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_whole_slice_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic [1:0][1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][1:0][3:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        tmp[n][p][idx_i[n]] = data_i[n][p];
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten nested_whole_slice_gold nested_whole_slice_gate nested_whole_slice_miter
+sat -verify -prove trigger 0 nested_whole_slice_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_partial_slice_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][3:0] data_i,
+  input  logic [1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][3:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int q = 0; q < 2; q++) begin
+        tmp[n][idx_i[n]][q][7:4] = data_i[n][q];
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_partial_slice_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][3:0] data_i,
+  input  logic [1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][3:0][1:0][7:0] tmp;
+
+  always_comb begin
+    tmp = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int q = 0; q < 2; q++) begin
+        tmp[n][idx_i[n]][q][7:4] = data_i[n][q];
+      end
+    end
+    y_o = tmp;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten nested_partial_slice_gold nested_partial_slice_gate nested_partial_slice_miter
+sat -verify -prove trigger 0 nested_partial_slice_miter
+
+design -reset
+
+read_slang <<EOF
+module guarded_view_commit_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][7:0] data_i,
+  input  logic sel_i,
+  input  logic [1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][3:0][1:0][7:0] view_a;
+  logic [1:0][3:0][1:0][7:0] view_b;
+  logic [1:0][3:0][1:0][7:0] base;
+
+  always_comb begin
+    view_a = old_i;
+    view_b = old_i;
+    base = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int q = 0; q < 2; q++) begin
+        view_a[n][idx_i[n]][q] = data_i[n][q];
+        view_b[n][idx_i[n]][q] = ~data_i[n][q];
+      end
+    end
+    if (sel_i)
+      base = view_a;
+    else
+      base = view_b;
+    y_o = base;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module guarded_view_commit_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][7:0] data_i,
+  input  logic sel_i,
+  input  logic [1:0][3:0][1:0][7:0] old_i,
+  output logic [1:0][3:0][1:0][7:0] y_o
+);
+  logic [1:0][3:0][1:0][7:0] view_a;
+  logic [1:0][3:0][1:0][7:0] view_b;
+  logic [1:0][3:0][1:0][7:0] base;
+
+  always_comb begin
+    view_a = old_i;
+    view_b = old_i;
+    base = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int q = 0; q < 2; q++) begin
+        view_a[n][idx_i[n]][q] = data_i[n][q];
+        view_b[n][idx_i[n]][q] = ~data_i[n][q];
+      end
+    end
+    if (sel_i)
+      base = view_a;
+    else
+      base = view_b;
+    y_o = base;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten guarded_view_commit_gold guarded_view_commit_gate guarded_view_commit_miter
+sat -verify -prove trigger 0 guarded_view_commit_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_guarded_inner_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic sel_i,
+  input  logic [3:0][1:0][1:0][1:0][7:0] old_i,
+  output logic [3:0][1:0][1:0][1:0][7:0] y_o
+);
+  logic [3:0][1:0][1:0][1:0][7:0] view_a;
+  logic [3:0][1:0][1:0][1:0][7:0] view_b;
+  logic [3:0][1:0][1:0][1:0][7:0] base;
+
+  always_comb begin
+    view_a = old_i;
+    view_b = old_i;
+    base = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          if (sel_i)
+            view_a[idx_i[n]][q][n][p] = data_i[n][p][q];
+          else
+            view_b[idx_i[n]][q][n][p] = ~data_i[n][p][q];
+        end
+      end
+    end
+    base = sel_i ? view_a : view_b;
+    y_o = base;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_guarded_inner_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][7:0] data_i,
+  input  logic sel_i,
+  input  logic [3:0][1:0][1:0][1:0][7:0] old_i,
+  output logic [3:0][1:0][1:0][1:0][7:0] y_o
+);
+  logic [3:0][1:0][1:0][1:0][7:0] view_a;
+  logic [3:0][1:0][1:0][1:0][7:0] view_b;
+  logic [3:0][1:0][1:0][1:0][7:0] base;
+
+  always_comb begin
+    view_a = old_i;
+    view_b = old_i;
+    base = old_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          if (sel_i)
+            view_a[idx_i[n]][q][n][p] = data_i[n][p][q];
+          else
+            view_b[idx_i[n]][q][n][p] = ~data_i[n][p][q];
+        end
+      end
+    end
+    base = sel_i ? view_a : view_b;
+    y_o = base;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten nested_guarded_inner_gold nested_guarded_inner_gate nested_guarded_inner_miter
+sat -verify -prove trigger 0 nested_guarded_inner_miter
+
+design -reset
+
+read_slang <<EOF
+module nested_guarded_slice_gold (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][31:0] data_i,
+  input  logic sel_i,
+  input  logic [3:0][1:0][1:0][1:0][31:0] old32_i,
+  input  logic [3:0][1:0][1:0][1:0][15:0] old16_i,
+  output logic [3:0][1:0][1:0][1:0][31:0] y32_o,
+  output logic [3:0][1:0][1:0][1:0][15:0] y16_o
+);
+  logic [3:0][1:0][1:0][1:0][31:0] view32;
+  logic [3:0][1:0][1:0][1:0][15:0] view16;
+
+  always_comb begin
+    view32 = old32_i;
+    view16 = old16_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          if (sel_i)
+            view16[idx_i[n]][q][n][p] = data_i[n][p][q][31:16];
+          else
+            view32[idx_i[n]][q][n][p] = data_i[n][p][q];
+        end
+      end
+    end
+    y32_o = view32;
+    y16_o = view16;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module nested_guarded_slice_gate (
+  input  logic [1:0][1:0] idx_i,
+  input  logic [1:0][1:0][1:0][31:0] data_i,
+  input  logic sel_i,
+  input  logic [3:0][1:0][1:0][1:0][31:0] old32_i,
+  input  logic [3:0][1:0][1:0][1:0][15:0] old16_i,
+  output logic [3:0][1:0][1:0][1:0][31:0] y32_o,
+  output logic [3:0][1:0][1:0][1:0][15:0] y16_o
+);
+  logic [3:0][1:0][1:0][1:0][31:0] view32;
+  logic [3:0][1:0][1:0][1:0][15:0] view16;
+
+  always_comb begin
+    view32 = old32_i;
+    view16 = old16_i;
+    for (int n = 0; n < 2; n++) begin
+      for (int p = 0; p < 2; p++) begin
+        for (int q = 0; q < 2; q++) begin
+          if (sel_i)
+            view16[idx_i[n]][q][n][p] = data_i[n][p][q][31:16];
+          else
+            view32[idx_i[n]][q][n][p] = data_i[n][p][q];
+        end
+      end
+    end
+    y32_o = view32;
+    y16_o = view16;
+  end
+endmodule
+EOF
+
+proc; opt; scc -expect 0
+miter -equiv -flatten nested_guarded_slice_gold nested_guarded_slice_gate nested_guarded_slice_miter
+sat -verify -prove trigger 0 nested_guarded_slice_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_linear_gold (
+  input  logic [1:0] idx_i,
+  input  logic [3:0][3:0] old_i,
+  input  logic [3:0] data_i,
+  output logic [3:0][3:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    for (int q = 0; q < 4; q++)
+      y_o[q][idx_i] = data_i[q];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_linear_gate (
+  input  logic [1:0] idx_i,
+  input  logic [3:0][3:0] old_i,
+  input  logic [3:0] data_i,
+  output logic [3:0][3:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    for (int q = 0; q < 4; q++)
+      y_o[q][idx_i] = data_i[q];
+  end
+endmodule
+EOF_SV
+
+proc; opt_expr; opt_clean
+select -module coalesce_linear_gate
+select -assert-count 1 t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_linear_gold coalesce_linear_gate coalesce_linear_miter
+sat -verify -prove trigger 0 coalesce_linear_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_transposed_gold (
+  input  logic [1:0] idx_i,
+  input  logic [3:0][3:0] old_i,
+  input  logic [3:0] data_i,
+  output logic [3:0][3:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    for (int q = 0; q < 4; q++)
+      y_o[idx_i][q] = data_i[q];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_transposed_gate (
+  input  logic [1:0] idx_i,
+  input  logic [3:0][3:0] old_i,
+  input  logic [3:0] data_i,
+  output logic [3:0][3:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    for (int q = 0; q < 4; q++)
+      y_o[idx_i][q] = data_i[q];
+  end
+endmodule
+EOF_SV
+
+proc; opt_expr; opt_clean
+select -module coalesce_transposed_gate
+select -assert-count 1 t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_transposed_gold coalesce_transposed_gate coalesce_transposed_miter
+sat -verify -prove trigger 0 coalesce_transposed_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_guarded_gold (
+  input  logic       en_i,
+  input  logic [1:0] idx_i,
+  input  logic [3:0][3:0] old_i,
+  input  logic [3:0] data_i,
+  output logic [3:0][3:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    if (en_i) begin
+      for (int q = 0; q < 4; q++)
+        y_o[q][idx_i] = data_i[q];
+    end else begin
+      for (int q = 0; q < 4; q++)
+        y_o[q][idx_i] = ~data_i[q];
+    end
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_guarded_gate (
+  input  logic       en_i,
+  input  logic [1:0] idx_i,
+  input  logic [3:0][3:0] old_i,
+  input  logic [3:0] data_i,
+  output logic [3:0][3:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    if (en_i) begin
+      for (int q = 0; q < 4; q++)
+        y_o[q][idx_i] = data_i[q];
+    end else begin
+      for (int q = 0; q < 4; q++)
+        y_o[q][idx_i] = ~data_i[q];
+    end
+  end
+endmodule
+EOF_SV
+
+proc; opt_expr; opt_clean
+select -module coalesce_guarded_gate
+select -assert-count 1 t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_guarded_gold coalesce_guarded_gate coalesce_guarded_miter
+sat -verify -prove trigger 0 coalesce_guarded_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_priority_gold (
+  input  logic [7:0] old_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o[3:0] = a_i[3:0];
+    if (en1_i)
+      y_o[3:0] = b_i[3:0];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_priority_gate (
+  input  logic [7:0] old_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o[3:0] = a_i[3:0];
+    if (en1_i)
+      y_o[3:0] = b_i[3:0];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+# Uniform whole-word conflicting writes now merge as word-level muxes with a
+# combined guard; no bitwise write mask is needed at all.
+select -assert-none coalesce_priority_gate/t:$bwmux
+miter -equiv -flatten coalesce_priority_gold coalesce_priority_gate coalesce_priority_miter
+sat -verify -prove trigger 0 coalesce_priority_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_static_overlap_gold (
+  input  logic [7:0] old_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o = a_i;
+    if (en1_i)
+      y_o = b_i;
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_static_overlap_gate (
+  input  logic [7:0] old_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o = a_i;
+    if (en1_i)
+      y_o = b_i;
+  end
+endmodule
+EOF_SV
+
+proc; opt
+# Whole-word conflicting writes merge as word-level muxes (no write mask).
+select -assert-none coalesce_static_overlap_gate/t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_static_overlap_gold coalesce_static_overlap_gate coalesce_static_overlap_miter
+sat -verify -prove trigger 0 coalesce_static_overlap_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_dynamic_overlap_gold (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o[idx_i] = a_i;
+    if (en1_i)
+      y_o[idx_i] = b_i;
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_dynamic_overlap_gate (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o[idx_i] = a_i;
+    if (en1_i)
+      y_o[idx_i] = b_i;
+  end
+endmodule
+EOF_SV
+
+proc; opt
+select -assert-count 1 coalesce_dynamic_overlap_gate/t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_dynamic_overlap_gold coalesce_dynamic_overlap_gate coalesce_dynamic_overlap_miter
+sat -verify -prove trigger 0 coalesce_dynamic_overlap_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_dynamic_subslice_overlap_gold (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o[idx_i] = a_i;
+    if (en1_i)
+      y_o[idx_i][3:0] = b_i[3:0];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_dynamic_subslice_overlap_gate (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en0_i,
+  input  logic       en1_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (en0_i)
+      y_o[idx_i] = a_i;
+    if (en1_i)
+      y_o[idx_i][3:0] = b_i[3:0];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+select -assert-count 1 coalesce_dynamic_subslice_overlap_gate/t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_dynamic_subslice_overlap_gold coalesce_dynamic_subslice_overlap_gate coalesce_dynamic_subslice_overlap_miter
+sat -verify -prove trigger 0 coalesce_dynamic_subslice_overlap_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_branch_overlap_gold (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic [7:0] c_i,
+  input  logic       sel_i,
+  input  logic       en_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (sel_i)
+      y_o[idx_i] = a_i;
+    else
+      y_o[idx_i] = b_i;
+    if (en_i)
+      y_o[idx_i][5:2] = c_i[3:0];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_branch_overlap_gate (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic [7:0] c_i,
+  input  logic       sel_i,
+  input  logic       en_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (sel_i)
+      y_o[idx_i] = a_i;
+    else
+      y_o[idx_i] = b_i;
+    if (en_i)
+      y_o[idx_i][5:2] = c_i[3:0];
+  end
+endmodule
+EOF_SV
+
+proc; opt
+select -assert-count 1 coalesce_branch_overlap_gate/t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_branch_overlap_gold coalesce_branch_overlap_gate coalesce_branch_overlap_miter
+sat -verify -prove trigger 0 coalesce_branch_overlap_miter
+
+design -reset
+
+read_slang <<EOF_SV
+module coalesce_late_unconditional_gold (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (en_i)
+      y_o[idx_i] = a_i;
+    y_o[idx_i] = b_i;
+  end
+endmodule
+EOF_SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF_SV
+module coalesce_late_unconditional_gate (
+  input  logic [1:0] idx_i,
+  input  logic [7:0] old_i [4],
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  input  logic       en_i,
+  output logic [7:0] y_o [4]
+);
+  always_comb begin
+    y_o = old_i;
+    if (en_i)
+      y_o[idx_i] = a_i;
+    y_o[idx_i] = b_i;
+  end
+endmodule
+EOF_SV
+
+proc; opt
+select -assert-count 1 coalesce_late_unconditional_gate/t:$bwmux
+select -clear
+miter -equiv -flatten coalesce_late_unconditional_gold coalesce_late_unconditional_gate coalesce_late_unconditional_miter
+sat -verify -prove trigger 0 coalesce_late_unconditional_miter
+
+design -reset
+
+# Regression: a static write after a dynamic write to the same variable must
+# not coalesce backwards past the dynamic write (write order must hold).
+read_slang <<EOF2
+module order_gold (
+  input  logic [7:0] a_i,
+  input  logic [7:0] c_i,
+  input  logic       b_i,
+  input  logic [2:0] idx_i,
+  output logic [7:0] v
+);
+  always_comb begin
+    v = 8'h00;
+    v[3:0] = a_i[3:0];
+    v[idx_i] = b_i;
+    v[3:0] = c_i[3:0];
+  end
+endmodule
+EOF2
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF2
+module order_gate (
+  input  logic [7:0] a_i,
+  input  logic [7:0] c_i,
+  input  logic       b_i,
+  input  logic [2:0] idx_i,
+  output logic [7:0] v
+);
+  always_comb begin
+    v = 8'h00;
+    v[3:0] = a_i[3:0];
+    v[idx_i] = b_i;
+    v[3:0] = c_i[3:0];
+  end
+endmodule
+EOF2
+
+proc; opt
+miter -equiv -flatten order_gold order_gate order_miter
+sat -verify -prove trigger 0 order_miter
+
+design -reset
+
+# Regression: an LHS index must observe a pending update from an earlier
+# blocking assignment in the same process.
+read_slang <<EOF2
+module lhsidx_gold (
+  input  logic [2:0] base_i,
+  input  logic       d_i,
+  output logic [7:0] v,
+  output logic [2:0] idx
+);
+  always_comb begin
+    v = 8'h00;
+    idx = base_i + 3'd1;
+    v[idx] = d_i;
+  end
+endmodule
+EOF2
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF2
+module lhsidx_gate (
+  input  logic [2:0] base_i,
+  input  logic       d_i,
+  output logic [7:0] v,
+  output logic [2:0] idx
+);
+  always_comb begin
+    v = 8'h00;
+    idx = base_i + 3'd1;
+    v[idx] = d_i;
+  end
+endmodule
+EOF2
+
+proc; opt
+miter -equiv -flatten lhsidx_gold lhsidx_gate lhsidx_miter
+sat -verify -prove trigger 0 lhsidx_miter
+
+design -reset
+
+# Parallel case: disjoint constant items must not produce a priority ladder
+# (at most the default keeps one inversion), and must stay equivalent.
+read_slang <<EOF2
+module parcase_gold (
+  input  logic [1:0] sel_i,
+  input  logic [7:0] a_i, b_i, c_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    case (sel_i)
+      2'd0: y = a_i;
+      2'd1: y = b_i;
+      2'd2: y = c_i;
+      default: y = 8'h00;
+    endcase
+  end
+endmodule
+EOF2
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF2
+module parcase_gate (
+  input  logic [1:0] sel_i,
+  input  logic [7:0] a_i, b_i, c_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    case (sel_i)
+      2'd0: y = a_i;
+      2'd1: y = b_i;
+      2'd2: y = c_i;
+      default: y = 8'h00;
+    endcase
+  end
+endmodule
+EOF2
+
+select -module parcase_gate
+# Disjoint constant items need no priority ladder: no guard ANDing at all,
+# and at most the zero-compare canonicalization plus the default-guard
+# inversion may appear as $logic_not. The disjoint writes fold into one
+# flat $pmux instead of a word-mux chain.
+select -assert-none t:$logic_and
+select -assert-max 2 t:$logic_not
+select -assert-count 1 t:$pmux
+select -assert-none t:$mux
+select -clear
+
+proc; opt
+miter -equiv -flatten parcase_gold parcase_gate parcase_miter
+sat -verify -prove trigger 0 parcase_miter
+
+design -reset
+
+# Parallel case behind an unconditional default write: the default flushes
+# as the plain word value and the disjoint items still fold into one $pmux
+# selecting over it, with no residual word-mux chain.
+read_slang <<EOF2
+module parbase_gold (
+  input  logic [1:0] sel_i,
+  input  logic [7:0] a_i, b_i, c_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    y = 8'h5a;
+    case (sel_i)
+      2'd0: y = a_i;
+      2'd1: y = b_i;
+      2'd2: y = c_i;
+    endcase
+  end
+endmodule
+EOF2
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF2
+module parbase_gate (
+  input  logic [1:0] sel_i,
+  input  logic [7:0] a_i, b_i, c_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    y = 8'h5a;
+    case (sel_i)
+      2'd0: y = a_i;
+      2'd1: y = b_i;
+      2'd2: y = c_i;
+    endcase
+  end
+endmodule
+EOF2
+
+select -module parbase_gate
+select -assert-count 1 t:$pmux
+select -assert-none t:$mux
+select -assert-none t:$logic_and
+select -clear
+
+proc; opt
+miter -equiv -flatten parbase_gold parbase_gate parbase_miter
+sat -verify -prove trigger 0 parbase_miter
+
+design -reset
+
+# Dead-write elimination: a full overwrite drops the earlier pending write
+# entirely; the flush of an unconditional final value needs no mux cells.
+read_slang --use-update-map-lowering <<EOF2
+module deadwrite_gate (
+  input  logic [7:0] a_i, b_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    y = a_i ^ 8'h5a;
+    y = b_i;
+  end
+endmodule
+EOF2
+
+select -module deadwrite_gate
+select -assert-none t:$bwmux t:$mux %u
+select -assert-none t:$xor
+select -clear
+
+read_slang <<EOF2
+module deadwrite_gold (
+  input  logic [7:0] a_i, b_i,
+  output logic [7:0] y
+);
+  always_comb begin
+    y = a_i ^ 8'h5a;
+    y = b_i;
+  end
+endmodule
+EOF2
+
+proc; opt
+miter -equiv -flatten deadwrite_gold deadwrite_gate deadwrite_miter
+sat -verify -prove trigger 0 deadwrite_miter
