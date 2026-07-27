@@ -47,6 +47,64 @@ std::pair<std::string, SigSpec> RTLILBuilder::add_y_wire(int width)
 void RTLILBuilder::bless_cell(RTLIL::Cell *cell)
 {
 	cell->attributes = staged_attributes;
+	if (arch_hints_enabled)
+		apply_arch_hint(cell);
+}
+
+// Operator cells eligible for architectural-variant hints: the word-level
+// arithmetic/shift/comparison cells a backend dispatches structural
+// implementations on.
+static bool is_operator_cell_type(IdString type)
+{
+	return type.in(ID($neg), ID($add), ID($sub), ID($mul), ID($div), ID($mod),
+			ID($divfloor), ID($modfloor), ID($pow),
+			ID($shl), ID($shr), ID($sshl), ID($sshr), ID($shift), ID($shiftx),
+			ID($lt), ID($le), ID($gt), ID($ge), ID($eq), ID($ne), ID($eqx), ID($nex));
+}
+
+static std::string_view arch_hint_trim(std::string_view text)
+{
+	size_t begin = text.find_first_not_of(" \t\r\n");
+	if (begin == std::string_view::npos)
+		return {};
+	size_t end = text.find_last_not_of(" \t\r\n");
+	return text.substr(begin, end - begin + 1);
+}
+
+void RTLILBuilder::apply_arch_hint(RTLIL::Cell *cell)
+{
+	if (!arch_hints_enabled || arch_hint_stack.empty())
+		return;
+
+	// Walk the active defaults innermost-first (statement above scope above
+	// module); the first applicable entry wins. A `$op=`-targeted entry
+	// applies only to cells of exactly that type and is transparent for
+	// other cell types.
+	for (auto it = arch_hint_stack.rbegin(); it != arch_hint_stack.rend(); ++it) {
+		std::string_view descr = arch_hint_trim(*it);
+		std::string_view payload;
+
+		if (!descr.empty() && descr[0] == '$') {
+			size_t equals = descr.find('=');
+			if (equals == std::string_view::npos)
+				continue;
+			std::string_view target = arch_hint_trim(descr.substr(0, equals));
+			if (target != std::string_view(cell->type.c_str()))
+				continue;
+			payload = arch_hint_trim(descr.substr(equals + 1));
+		} else {
+			if (!is_operator_cell_type(cell->type))
+				continue;
+			payload = descr;
+		}
+
+		// minimal form check: the payload must contain a braced assignment list
+		if (payload.empty() || payload.find('{') == std::string_view::npos)
+			continue;
+
+		cell->set_string_attribute(ID(arch_variant_hint), std::string(payload));
+		return;
+	}
 }
 
 SigSpec RTLILBuilder::ReduceBool(SigSpec a)

@@ -1,0 +1,132 @@
+# An elaboration error inside a variant configuration no instance uses must
+# still fail the compile: all listed configurations are elaborated.
+test_slangdiag -expect "$error encountered: fastest variant broken"
+read_slang --arch-variants <<EOF
+module gadget (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED" *)
+	parameter string SpeedGrade = "BALANCED";
+
+	if (SpeedGrade == "FASTEST") begin : g_fast
+		$error("fastest variant broken");
+		assign y_o = a_i + 1;
+	end else begin : g_bal
+		assign y_o = a_i - 1;
+	end
+endmodule
+
+module top (input logic [7:0] a_i, output logic [7:0] y_o);
+	gadget u_g (.a_i, .y_o);
+endmodule
+EOF
+
+design -reset
+
+# Instantiation with a selector combination outside the matrix:
+# hard error under STRICT ...
+test_slangdiag -expect "instance uses variant selector combination '{SpeedGrade=FASTEST, PowerGrade=EFFICIENT}' not listed in STRICT 'arch_variant_configs' of module 'dual'"
+read_slang --arch-variants <<EOF
+(* arch_variant_configs = "STRICT{SpeedGrade, PowerGrade} = [FASTEST, DEFAULT], [BALANCED, DEFAULT]" *)
+module dual (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED" *)
+	parameter string SpeedGrade = "BALANCED";
+	(* arch_variant = "EFFICIENT, DEFAULT" *)
+	parameter string PowerGrade = "DEFAULT";
+	assign y_o = (SpeedGrade == "FASTEST") ? a_i + 1 : a_i - 1;
+endmodule
+
+module top (input logic [7:0] a_i, output logic [7:0] y_o);
+	dual #(.SpeedGrade("FASTEST"), .PowerGrade("EFFICIENT")) u_d (.a_i, .y_o);
+endmodule
+EOF
+
+design -reset
+
+# ... and only a warning under CHECK, where the combination is treated as an
+# additional ad-hoc configuration.
+test_slangdiag -expect "instance uses variant selector combination '{SpeedGrade=FASTEST, PowerGrade=EFFICIENT}' not listed in 'arch_variant_configs' of module 'dual'"
+read_slang --arch-variants <<EOF
+(* arch_variant_configs = "CHECK{SpeedGrade, PowerGrade} = [FASTEST, DEFAULT], [BALANCED, DEFAULT]" *)
+module dual (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED" *)
+	parameter string SpeedGrade = "BALANCED";
+	(* arch_variant = "EFFICIENT, DEFAULT" *)
+	parameter string PowerGrade = "DEFAULT";
+	assign y_o = (SpeedGrade == "FASTEST") ? a_i + 1 : a_i - 1;
+endmodule
+
+module top (input logic [7:0] a_i, output logic [7:0] y_o);
+	dual #(.SpeedGrade("FASTEST"), .PowerGrade("EFFICIENT")) u_d (.a_i, .y_o);
+endmodule
+EOF
+
+# the warning does not abort: two listed + one ad-hoc configuration
+select -assert-mod-count 3 A:arch_variant_origin=dual
+
+design -reset
+
+# Malformed arch_variant_configs grammar
+test_slangdiag -expect "malformed 'arch_variant_configs' attribute: expected '{' parameter list '}'"
+read_slang --arch-variants <<EOF
+(* arch_variant_configs = "STRICT{SpeedGrade = [FASTEST]" *)
+module gadget (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED" *)
+	parameter string SpeedGrade = "BALANCED";
+	assign y_o = a_i;
+endmodule
+
+module top (input logic [7:0] a_i, output logic [7:0] y_o);
+	gadget u_g (.a_i, .y_o);
+endmodule
+EOF
+
+design -reset
+
+# Selector default value outside its own valid-value list
+test_slangdiag -expect "default value 'MEDIUM' of variant selector 'SpeedGrade' is not in its valid-value list"
+read_slang --arch-variants <<EOF
+module gadget (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED" *)
+	parameter string SpeedGrade = "MEDIUM";
+	assign y_o = a_i;
+endmodule
+
+module top (input logic [7:0] a_i, output logic [7:0] y_o);
+	gadget u_g (.a_i, .y_o);
+endmodule
+EOF
+
+design -reset
+
+# Multiple selectors require an explicit configuration matrix
+test_slangdiag -expect "module 'dual' has multiple variant selectors but no 'arch_variant_configs' attribute"
+read_slang --arch-variants <<EOF
+module dual (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED" *)
+	parameter string SpeedGrade = "BALANCED";
+	(* arch_variant = "EFFICIENT, DEFAULT" *)
+	parameter string PowerGrade = "DEFAULT";
+	assign y_o = a_i;
+endmodule
+
+module top (input logic [7:0] a_i, output logic [7:0] y_o);
+	dual u_d (.a_i, .y_o);
+endmodule
+EOF

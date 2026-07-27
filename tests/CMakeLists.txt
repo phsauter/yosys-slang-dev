@@ -29,6 +29,8 @@ set(ALL_TESTS
     unit/function_call.ys
     unit/latch.ys
     unit/selftests.tcl
+    various/arch_variants.ys
+    various/arch_variants_diag.ys
     various/assign_mixing.ys
     various/aggregate_masked_write.ys
     various/assignment_pattern_lhs.ys

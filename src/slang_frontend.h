@@ -341,6 +341,14 @@ struct RTLILBuilder {
 	RTLIL::Module *canvas;
 	Yosys::dict<RTLIL::IdString, RTLIL::Const> staged_attributes;
 
+	// Experimental architectural-variant operator hints (--arch-variants):
+	// stack of active `arch_variant_descr` defaults, innermost last
+	// (module default at the bottom, generate scopes and statements above).
+	// bless_cell() resolves the topmost applicable entry into an
+	// `arch_variant_hint` attribute on operator cells.
+	bool arch_hints_enabled = false;
+	std::vector<std::string> arch_hint_stack;
+
 	unsigned next_id = 0;
 	std::string new_id(std::string base = std::string());
 
@@ -404,6 +412,35 @@ private:
 	std::pair<std::string, SigSpec> add_y_wire(int width);
 	// apply attributes to newly created cell
 	void bless_cell(RTLIL::Cell *cell);
+	// resolve the active arch_variant_descr (if any) into an
+	// arch_variant_hint attribute on operator cells
+	void apply_arch_hint(RTLIL::Cell *cell);
+};
+
+// Pushes an arch_variant_descr scope/statement default for its lifetime.
+// A disengaged or empty descr pushes nothing.
+class ArchHintGuard {
+public:
+	ArchHintGuard(RTLILBuilder &builder, std::optional<std::string> descr) : builder(builder)
+	{
+		if (builder.arch_hints_enabled && descr.has_value() && !descr->empty()) {
+			builder.arch_hint_stack.push_back(std::move(*descr));
+			pushed = true;
+		}
+	}
+
+	~ArchHintGuard()
+	{
+		if (pushed)
+			builder.arch_hint_stack.pop_back();
+	}
+
+	ArchHintGuard(const ArchHintGuard&) = delete;
+	ArchHintGuard& operator=(const ArchHintGuard&) = delete;
+
+private:
+	RTLILBuilder &builder;
+	bool pushed = false;
 };
 
 class AttributeGuard {
@@ -476,9 +513,13 @@ struct SynthesisSettings {
 	std::optional<UdpHandleMode> udp_handling;
 	std::optional<std::string> ff_naming;
 	std::optional<ModuleUniquifyMode> module_uniquify;
+	std::optional<bool> arch_variants;
 	// pass std::less<> to enable transparent lookup
 	std::set<std::string, std::less<>> blackboxed_modules;
 	bool disable_instance_caching = false;
+	// definitions with architectural variants (filled in by ArchVariantExpander);
+	// instances of these are never dissolved so the choice point survives
+	std::set<const void *> arch_variant_definitions;
 
 	enum HierMode {
 		NONE,
@@ -599,6 +640,14 @@ struct NetlistContext : RTLILBuilder, public DiagnosticIssuer {
 };
 
 // slang_frontend.cc
+const ast::InstanceBodySymbol &get_instance_body(SynthesisSettings &settings, const ast::InstanceSymbol &instance);
+// Read the `arch_variant_descr` attribute off a symbol or statement, if any
+template<typename T> std::optional<std::string>
+arch_variant_descr_attribute(ast::Compilation &compilation, const T &from);
+// Read an `arch_variant_descr` attached directly to an assignment LHS or to
+// the value symbol named by that LHS (including selects and member accesses).
+std::optional<std::string> arch_variant_descr_lhs_attribute(
+		ast::Compilation &compilation, const ast::Expression &lhs);
 RTLIL::SigBit inside_comparison(EvalContext &eval, RTLIL::SigSpec left, const ast::Expression &expr);
 extern std::string hierpath_relative_to(const ast::Scope *relative_to, const ast::Scope *scope);
 template<typename T> void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to);

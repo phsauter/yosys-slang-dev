@@ -1,0 +1,341 @@
+# Single selector, implicit matrix: one module copy per valid value,
+# each carrying the arch-variant attributes; the instantiated configuration
+# keeps the plain module name, the others get __av__ names.
+read_slang --arch-variants --module-uniquify param <<EOF
+module alu (
+	input  logic [7:0] a_i,
+	input  logic [7:0] b_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST,BALANCED , SMALLEST" *)
+	parameter string SpeedGrade = "BALANCED";
+
+	generate
+		case (SpeedGrade)
+			"FASTEST": begin : g_fast
+				assign y_o = a_i + b_i;
+			end
+			"SMALLEST": begin : g_small
+				assign y_o = a_i - b_i;
+			end
+			default: begin : g_default
+				assign y_o = a_i ^ b_i;
+			end
+		endcase
+	endgenerate
+endmodule
+
+module top (
+	input  logic [7:0] a_i,
+	input  logic [7:0] b_i,
+	output logic [7:0] y_o
+);
+	alu u_alu (.a_i, .b_i, .y_o);
+endmodule
+EOF
+
+cd top
+cd ..
+cd alu
+cd ..
+cd alu__av__SpeedGrade_FASTEST
+cd ..
+cd alu__av__SpeedGrade_SMALLEST
+cd ..
+select -assert-mod-count 3 A:arch_variant_origin=alu
+select -assert-mod-count 3 A:keep_hierarchy
+select -assert-mod-count 3 A:arch_variant_group
+select -assert-mod-count 1 A:arch_variant_descr={SpeedGrade=FASTEST}
+select -assert-mod-count 1 A:arch_variant_descr={SpeedGrade=BALANCED}
+select -assert-mod-count 1 A:arch_variant_descr={SpeedGrade=SMALLEST}
+# the instantiated (default) configuration keeps the plain name
+select -assert-mod-count 1 A:arch_variant_descr={SpeedGrade=BALANCED} alu %i
+
+design -reset
+
+# Two selectors with a STRICT matrix: only the listed combinations are
+# elaborated and emitted, each descr carries the strictness prefix.
+read_slang --arch-variants --module-uniquify param <<EOF
+(* arch_variant_configs = "STRICT{SpeedGrade, PowerGrade} = [FASTEST, DEFAULT], [BALANCED, DEFAULT], [BALANCED, EFFICIENT]" *)
+module dual (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST, BALANCED, SMALLEST, GATE" *)
+	parameter string SpeedGrade = "BALANCED";
+
+	(* arch_variant = "EFFICIENT, DEFAULT" *)
+	parameter string PowerGrade = "DEFAULT";
+
+	logic [7:0] stage;
+
+	if (SpeedGrade == "FASTEST") begin : g_fast
+		assign stage = a_i + 1;
+	end else begin : g_other
+		assign stage = a_i - 1;
+	end
+
+	if (PowerGrade == "EFFICIENT") begin : g_eff
+		assign y_o = stage;
+	end else begin : g_pdef
+		assign y_o = ~stage;
+	end
+endmodule
+
+module top (
+	input  logic [7:0] a_i,
+	output logic [7:0] y_o
+);
+	dual u_dual (.a_i, .y_o);
+endmodule
+EOF
+
+cd top
+cd ..
+cd dual
+cd ..
+cd dual__av__SpeedGrade_FASTEST__PowerGrade_DEFAULT
+cd ..
+cd dual__av__SpeedGrade_BALANCED__PowerGrade_EFFICIENT
+cd ..
+# exactly the three listed combinations, not the full 4x2 product
+select -assert-mod-count 3 A:arch_variant_origin=dual
+# strictness prefix present in every descr
+select -assert-mod-count 3 A:arch_variant_descr=STRICT{* A:arch_variant_origin=dual %i
+
+design -reset
+
+# Without --arch-variants nothing changes: the design elaborates classically
+# (selectors at their defaults, full flatten) and no variant attributes or
+# modules appear.
+read_slang <<EOF
+module alu (
+	input  logic [7:0] a_i,
+	input  logic [7:0] b_i,
+	output logic [7:0] y_o
+);
+	(* arch_variant = "FASTEST,BALANCED , SMALLEST" *)
+	parameter string SpeedGrade = "BALANCED";
+
+	generate
+		case (SpeedGrade)
+			"FASTEST": begin : g_fast
+				assign y_o = a_i + b_i;
+			end
+			"SMALLEST": begin : g_small
+				assign y_o = a_i - b_i;
+			end
+			default: begin : g_default
+				assign y_o = a_i ^ b_i;
+			end
+		endcase
+	endgenerate
+endmodule
+
+module top (
+	input  logic [7:0] a_i,
+	input  logic [7:0] b_i,
+	output logic [7:0] y_o
+);
+	alu u_alu (.a_i, .b_i, .y_o);
+endmodule
+EOF
+
+select -assert-mod-count 1 top
+select -assert-mod-count 0 A:arch_variant_origin
+select -assert-mod-count 0 A:arch_variant_descr
+# classic elaboration dissolves the instance and keeps the default (xor) path
+select -assert-count 1 top/t:$xor
+select -assert-count 0 top/t:$add
+select -assert-count 0 top/t:$sub
+
+design -reset
+
+# Variants are expanded per used (non-selector) parameterization, and an
+# instantiation-site selector override keeps its (uniquified) name while the
+# other configurations get __av__ names.
+read_slang --arch-variants --module-uniquify param <<EOF
+module scaler (
+	input  logic [15:0] a_i,
+	output logic [15:0] y_o
+);
+	parameter int WIDTH = 8;
+
+	(* arch_variant = "FAST, SMALL" *)
+	parameter string Grade = "FAST";
+
+	if (Grade == "FAST") begin : g_fast
+		assign y_o[WIDTH-1:0] = a_i[WIDTH-1:0] + 1;
+	end else begin : g_small
+		assign y_o[WIDTH-1:0] = a_i[WIDTH-1:0] - 1;
+	end
+	if (WIDTH < 16) begin : g_pad
+		assign y_o[15:WIDTH] = '0;
+	end
+endmodule
+
+module top (
+	input  logic [15:0] a_i,
+	output logic [15:0] y_o,
+	output logic [15:0] z_o
+);
+	scaler #(.WIDTH(8)) u0 (.a_i, .y_o);
+	scaler #(.WIDTH(16), .Grade("SMALL")) u1 (.a_i, .y_o(z_o));
+endmodule
+EOF
+
+cd top
+cd ..
+cd scaler__WIDTH_8__Grade_FAST
+cd ..
+cd scaler__WIDTH_8__Grade_FAST__av__Grade_SMALL
+cd ..
+cd scaler__WIDTH_16__Grade_SMALL
+cd ..
+cd scaler__WIDTH_16__Grade_SMALL__av__Grade_FAST
+cd ..
+# two parameterizations x two configurations
+select -assert-mod-count 4 A:arch_variant_origin=scaler
+
+design -reset
+
+# Stage 2: a statement-level descriptor applies only to the operators made by
+# that statement; a descriptor on the result net (the LHS) is treated as the
+# same statement-level hint.
+read_slang --arch-variants <<EOF
+module stmt_lhs(
+	input logic [7:0] a_i, b_i, c_i,
+	output logic [7:0] lhs_y, stmt_y, sibling_y
+);
+	(* arch_variant_descr = "PREFER{Source=LHS}" *) logic [7:0] lhs_tmp;
+	assign lhs_tmp = a_i * b_i;
+	assign lhs_y = lhs_tmp;
+
+	always_comb begin
+		(* arch_variant_descr = "PREFER{Source=STATEMENT}" *) stmt_y = a_i * c_i;
+		sibling_y = b_i * c_i;
+	end
+endmodule
+EOF
+
+cd stmt_lhs
+select -assert-count 3 t:$mul
+select -assert-count 1 a:arch_variant_hint=PREFER{Source=LHS}
+select -assert-count 1 a:arch_variant_hint=PREFER{Source=STATEMENT}
+select -assert-count 0 a:arch_variant_descr
+cd ..
+
+design -reset
+
+# A generic default on a generate item covers all operator cells in that
+# scope. A targeted statement descriptor overrides it for only its $mul;
+# the module-level default remains in effect outside the generate scope.
+read_slang --arch-variants <<EOF
+(* arch_variant_descr = "PREFER{Level=MODULE}" *)
+module scoped_defaults(
+	input logic [7:0] a_i, b_i, c_i,
+	output logic [7:0] hinted_y, sibling_y, sum_y, outside_y
+);
+	generate
+		(* arch_variant_descr = "PREFER{Level=SCOPE}" *)
+		if (1) begin : g_scope
+			always_comb begin
+				(* arch_variant_descr = "\$mul=PREFER{Level=STATEMENT}" *) hinted_y = a_i * b_i;
+				sibling_y = a_i * c_i;
+				sum_y = a_i + b_i;
+			end
+		end
+	endgenerate
+	always_comb outside_y = a_i - b_i;
+endmodule
+EOF
+
+cd scoped_defaults
+select -assert-count 1 a:arch_variant_hint=PREFER{Level=STATEMENT}
+select -assert-count 2 a:arch_variant_hint=PREFER{Level=SCOPE}
+select -assert-count 1 a:arch_variant_hint=PREFER{Level=MODULE}
+select -assert-count 0 a:arch_variant_descr
+cd ..
+
+design -reset
+
+# The classic and update-map lowerings resolve statement, LHS, scope, and
+# module defaults identically; the update-map module has no RTLIL process.
+read_slang --arch-variants <<EOF
+(* arch_variant_descr = "PREFER{Path=MODULE}" *)
+module classic_hint(
+	input logic [7:0] a_i, b_i, c_i,
+	output logic [7:0] y_o, sibling_o, lhs_o, outside_o
+);
+	(* arch_variant_descr = "PREFER{Path=LHS}" *) logic [7:0] lhs_tmp;
+	generate
+		(* arch_variant_descr = "PREFER{Path=SCOPE}" *)
+		if (1) begin : g_scope
+			always_comb begin
+				(* arch_variant_descr = "PREFER{Path=STATEMENT}" *) y_o = a_i * b_i;
+				sibling_o = a_i + c_i;
+				lhs_tmp = b_i * c_i;
+			end
+		end
+	endgenerate
+	assign lhs_o = lhs_tmp;
+	always_comb outside_o = a_i - b_i;
+endmodule
+EOF
+read_slang --arch-variants --use-update-map-lowering <<EOF
+(* arch_variant_descr = "PREFER{Path=MODULE}" *)
+module update_map_hint(
+	input logic [7:0] a_i, b_i, c_i,
+	output logic [7:0] y_o, sibling_o, lhs_o, outside_o
+);
+	(* arch_variant_descr = "PREFER{Path=LHS}" *) logic [7:0] lhs_tmp;
+	generate
+		(* arch_variant_descr = "PREFER{Path=SCOPE}" *)
+		if (1) begin : g_scope
+			always_comb begin
+				(* arch_variant_descr = "PREFER{Path=STATEMENT}" *) y_o = a_i * b_i;
+				sibling_o = a_i + c_i;
+				lhs_tmp = b_i * c_i;
+			end
+		end
+	endgenerate
+	assign lhs_o = lhs_tmp;
+	always_comb outside_o = a_i - b_i;
+endmodule
+EOF
+
+cd classic_hint
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=STATEMENT}
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=LHS}
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=SCOPE}
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=MODULE}
+select -assert-count 0 a:arch_variant_descr
+cd ..
+cd update_map_hint
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=STATEMENT}
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=LHS}
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=SCOPE}
+select -assert-count 1 a:arch_variant_hint=PREFER{Path=MODULE}
+select -assert-count 0 a:arch_variant_descr
+select -assert-count 0 p:*
+cd ..
+
+design -reset
+
+# The frontend gate also suppresses all reserved arch_variant_* output
+# attributes; annotations remain inert when --arch-variants is not present.
+read_slang <<EOF
+(* arch_variant_descr = "PREFER{Level=MODULE}" *)
+module feature_off(
+	input logic [7:0] a_i, b_i,
+	output logic [7:0] y_o, z_o
+);
+	(* arch_variant_descr = "PREFER{Source=LHS}" *) logic [7:0] tmp;
+	assign tmp = a_i * b_i;
+	assign y_o = tmp;
+	always_comb begin
+		(* arch_variant_descr = "PREFER{Source=STATEMENT}" *) z_o = a_i + b_i;
+	end
+endmodule
+EOF
+select -assert-count 0 a:arch_variant_*

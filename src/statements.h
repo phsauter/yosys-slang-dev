@@ -301,7 +301,18 @@ public:
 		return ret;
 	}
 
-	void handle(const ast::ExpressionStatement &stmt) { eval(stmt.expr); }
+	void handle(const ast::ExpressionStatement &stmt)
+	{
+		std::optional<std::string> descr;
+		if (context.netlist.arch_hints_enabled) {
+			descr = arch_variant_descr_attribute<ast::Statement>(context.netlist.compilation, stmt);
+			if (!descr && stmt.expr.kind == ast::ExpressionKind::Assignment)
+				descr = arch_variant_descr_lhs_attribute(context.netlist.compilation,
+						stmt.expr.as<ast::AssignmentExpression>().left());
+		}
+		ArchHintGuard hint_guard(context.netlist, std::move(descr));
+		eval(stmt.expr);
+	}
 
 	void handle(const ast::BlockStatement &blk)
 	{

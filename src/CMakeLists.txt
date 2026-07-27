@@ -14,6 +14,8 @@ endif()
 add_library(yosys-slang ${LIBRARY_TYPE}
     abort_helpers.cc
     addressing.cc
+    arch_variants.cc
+    arch_variants.h
     async_pattern.cc
     async_pattern.h
     blackboxes.cc

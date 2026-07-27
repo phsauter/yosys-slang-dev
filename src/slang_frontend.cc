@@ -11,6 +11,10 @@
 #include "slang/ast/InstanceCacheKey.h"
 #include "slang/ast/SemanticFacts.h"
 #include "slang/ast/SystemSubroutine.h"
+#include "slang/ast/expressions/ConversionExpression.h"
+#include "slang/ast/expressions/MiscExpressions.h"
+#include "slang/ast/expressions/OperatorExpressions.h"
+#include "slang/ast/expressions/SelectExpressions.h"
 #include "slang/ast/symbols/InstanceSymbols.h"
 #include "slang/ast/symbols/ParameterSymbols.h"
 #include "slang/ast/types/TypePrinter.h"
@@ -35,6 +39,7 @@
 #include "statements.h"
 #include "version.h"
 #include "slang_frontend.h"
+#include "arch_variants.h"
 #include "diag.h"
 #include "async_pattern.h"
 #include "process_lowering.h"
@@ -44,6 +49,12 @@
 #include <optional>
 
 namespace slang_frontend {
+
+static bool is_arch_variant_attribute(std::string_view name)
+{
+	return name == "arch_variant" ||
+			(name.size() >= 13 && name.substr(0, 13) == "arch_variant_");
+}
 
 void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 	cmdLine.add("--dump-ast", dump_ast, "Dump the AST");
@@ -103,6 +114,11 @@ void SynthesisSettings::addOptions(slang::CommandLine &cmdLine) {
 			"--module-uniquify", module_uniquify,
 			"Set how preserved modules are uniquified. 'instance' keeps the current instance-path based names."
 			" 'param' emits one module per unique parameterization and adds a parameter suffix only when needed.");
+	cmdLine.add("--arch-variants", arch_variants,
+				"Experimental: expand modules carrying 'arch_variant' selector attributes into one"
+				" module copy per valid selector configuration. Every configuration is elaborated"
+				" and emitted; generated modules carry 'arch_variant_origin', 'arch_variant_descr',"
+				" 'arch_variant_group' and 'keep_hierarchy' attributes.");
 
 	// Deprecated section
 	cmdLine.add("--compat-mode", compat_mode,
@@ -461,6 +477,11 @@ void transfer_attrs(NetlistContext &netlist, T &from, RTLIL::AttrObject *to)
 		to->attributes[ID::src] = src;
 
 	for (auto attr : global_compilation->getAttributes(from)) {
+		// These are frontend-reserved annotations. Operator descriptions are
+		// resolved into `arch_variant_hint` by RTLILBuilder; generated module
+		// markers are stamped explicitly after netlist population.
+		if (is_arch_variant_attribute(attr->name))
+			continue;
 		if (auto value = convert_attr_value(netlist, attr)) {
 			to->attributes[id(attr->name)] = *value;
 		}
@@ -477,6 +498,8 @@ void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
 		guard.set(ID::src, src);
 
 	for (auto attr : global_compilation->getAttributes(from)) {
+		if (is_arch_variant_attribute(attr->name))
+			continue;
 		if (auto value = convert_attr_value(netlist, attr)) {
 			guard.set(id(attr->name), *value);
 		}
@@ -484,6 +507,63 @@ void transfer_attrs(NetlistContext &netlist, T &from, AttributeGuard &guard)
 }
 template void transfer_attrs<const ast::Symbol>(NetlistContext &netlist, const ast::Symbol &from, AttributeGuard &guard);
 template void transfer_attrs<const ast::Statement>(NetlistContext &netlist, const ast::Statement &from, AttributeGuard &guard);
+
+template<typename T>
+std::optional<std::string> arch_variant_descr_attribute(ast::Compilation &compilation, const T &from)
+{
+	for (auto attr : compilation.getAttributes(from)) {
+		if (attr->name == "arch_variant_descr"sv)
+			return arch_attr_string_value(*attr);
+	}
+	return std::nullopt;
+}
+template std::optional<std::string> arch_variant_descr_attribute<ast::Symbol>(ast::Compilation &compilation, const ast::Symbol &from);
+template std::optional<std::string> arch_variant_descr_attribute<ast::Statement>(ast::Compilation &compilation, const ast::Statement &from);
+
+std::optional<std::string> arch_variant_descr_lhs_attribute(
+		ast::Compilation &compilation, const ast::Expression &lhs)
+{
+	// An attribute can be attached to the lvalue expression itself, or (the
+	// usual SV spelling) to the declared value symbol it names.
+	for (auto attr : compilation.getAttributes(lhs)) {
+		if (attr->name == "arch_variant_descr"sv)
+			return arch_attr_string_value(*attr);
+	}
+
+	switch (lhs.kind) {
+	case ast::ExpressionKind::NamedValue:
+		return arch_variant_descr_attribute<ast::Symbol>(compilation,
+				lhs.as<ast::NamedValueExpression>().symbol);
+	case ast::ExpressionKind::HierarchicalValue:
+		return arch_variant_descr_attribute<ast::Symbol>(compilation,
+				lhs.as<ast::HierarchicalValueExpression>().symbol);
+	case ast::ExpressionKind::ElementSelect:
+		return arch_variant_descr_lhs_attribute(compilation,
+				lhs.as<ast::ElementSelectExpression>().value());
+	case ast::ExpressionKind::RangeSelect:
+		return arch_variant_descr_lhs_attribute(compilation,
+				lhs.as<ast::RangeSelectExpression>().value());
+	case ast::ExpressionKind::MemberAccess: {
+		auto &member = lhs.as<ast::MemberAccessExpression>().member;
+		if (auto descr = arch_variant_descr_attribute<ast::Symbol>(compilation, member))
+			return descr;
+		return arch_variant_descr_lhs_attribute(compilation,
+				lhs.as<ast::MemberAccessExpression>().value());
+	}
+	case ast::ExpressionKind::Conversion:
+		return arch_variant_descr_lhs_attribute(compilation,
+				lhs.as<ast::ConversionExpression>().operand());
+	case ast::ExpressionKind::Concatenation:
+		for (auto operand : lhs.as<ast::ConcatenationExpression>().operands()) {
+			if (auto descr = arch_variant_descr_lhs_attribute(compilation, *operand))
+				return descr;
+		}
+		break;
+	default:
+		break;
+	}
+	return std::nullopt;
+}
 };
 
 #include "cases.h"
@@ -1795,6 +1875,16 @@ bool SynthesisSettings::should_dissolve(const ast::InstanceSymbol &sym, slang::D
 		return false;
 	}
 
+	if (arch_variants.value_or(false) && sym.isModule() &&
+			arch_variant_definitions.count(&sym.body.getDefinition())) {
+		if (why_not_dissolved) {
+			auto &note = why_not_dissolved->addNote(diag::NoteModuleNotDissolvedBecauseArchVariant,
+													sym.location);
+			note << sym.body.name;
+		}
+		return false;
+	}
+
 	if (sym.isInterface())
 		return true;
 
@@ -2052,6 +2142,32 @@ struct ModuleNameResolver {
 		}));
 	}
 
+	struct ArchVariantPending {
+		const ast::InstanceBodySymbol *body;
+		const ast::InstanceBodySymbol *origin;
+		std::string suffix;
+		std::string signature;
+	};
+	std::vector<ArchVariantPending> arch_variant_pending;
+
+	// Register a synthetic (detached) architectural-variant instance. Its
+	// module is named `<origin module name>__av__<suffix>` in finalize().
+	void scan_arch_variant(const ast::InstanceSymbol &instance,
+			const ast::InstanceBodySymbol *origin_body, const std::string &suffix)
+	{
+		const ast::InstanceBodySymbol *body = &instance.body;
+		if (variant_by_body.count(body))
+			return;
+
+		auto text = module_param_text(instance);
+		arch_variant_pending.push_back(
+				ArchVariantPending{body, origin_body, suffix, std::move(text.signature)});
+
+		body->visit(ast::makeVisitor([&](auto&, const ast::InstanceSymbol &child) {
+			scan_instance(child);
+		}));
+	}
+
 	void finalize()
 	{
 		std::set<std::string> used_names;
@@ -2095,6 +2211,32 @@ struct ModuleNameResolver {
 			}
 
 			variant.module_name = id;
+			used_names.insert(id.str());
+		}
+
+		// Names for synthetic architectural-variant modules are derived from
+		// the (now settled) name of the module they originate from.
+		for (auto &pending : arch_variant_pending) {
+			ast_invariant(*pending.body, variant_by_body.count(pending.origin));
+			RTLIL::IdString origin_id = variants[variant_by_body.at(pending.origin)].module_name;
+			std::string base = origin_id.str();
+			if (!base.empty() && base[0] == '\\')
+				base = base.substr(1);
+
+			std::string suffix = pending.suffix;
+			if (suffix.empty() || suffix.size() > 80)
+				suffix = module_hash_fragment(pending.signature);
+
+			std::string name = base + "__av__" + suffix;
+			RTLIL::IdString id = RTLIL::escape_id(name);
+			if (used_names.count(id.str())) {
+				name += "__" + module_hash_fragment(pending.signature);
+				id = RTLIL::escape_id(name);
+			}
+
+			size_t index = variants.size();
+			variants.push_back(Variant{pending.body, pending.signature, std::nullopt, false, id});
+			variant_by_body[pending.body] = index;
 			used_names.insert(id.str());
 		}
 	}
@@ -2881,8 +3023,18 @@ public:
 		if (sym.getDelay() && !settings.ignore_timing.value_or(false))
 			netlist.add_diag(diag::GenericTimingUnsyn, sym.getDelay()->sourceRange);
 
+		// This lookup is deliberately gated as well as ArchHintGuard itself:
+		// with the feature disabled, attribute discovery must not touch the
+		// compilation or alter the legacy frontend path at all.
 		const ast::AssignmentExpression &expr = sym.getAssignment().as<ast::AssignmentExpression>();
 		ast_invariant(expr, !expr.timingControl);
+		std::optional<std::string> descr;
+		if (settings.arch_variants.value_or(false)) {
+			descr = arch_variant_descr_attribute<ast::Symbol>(netlist.compilation, sym);
+			if (!descr)
+				descr = arch_variant_descr_lhs_attribute(netlist.compilation, expr.left());
+		}
+		ArchHintGuard hint_guard(netlist, std::move(descr));
 
 		RTLIL::SigSpec rvalue = netlist.eval(expr.right());
 
@@ -2915,11 +3067,19 @@ public:
 	{
 		if (sym.isUninstantiated)
 			return;
+		std::optional<std::string> descr;
+		if (settings.arch_variants.value_or(false))
+			descr = arch_variant_descr_attribute<ast::Symbol>(netlist.compilation, sym);
+		ArchHintGuard hint_guard(netlist, std::move(descr));
 		visitDefault(sym);
 	}
 
 	void handle(const ast::GenerateBlockArraySymbol &sym)
 	{
+		std::optional<std::string> descr;
+		if (settings.arch_variants.value_or(false))
+			descr = arch_variant_descr_attribute<ast::Symbol>(netlist.compilation, sym);
+		ArchHintGuard hint_guard(netlist, std::move(descr));
 		visitDefault(sym);
 	}
 
@@ -3646,6 +3806,15 @@ NetlistContext::NetlistContext(
 		module_name = module_type_id(instance.body);
 	canvas = design->addModule(module_name);
 	transfer_attrs(*this, instance.body.getDefinition(), canvas);
+
+	arch_hints_enabled = settings.arch_variants.value_or(false);
+	if (arch_hints_enabled) {
+		// module-level operator hint default: bottom of the stack, never popped
+		if (auto descr = arch_variant_descr_attribute<ast::Symbol>(
+					compilation, instance.body.getDefinition());
+				descr.has_value() && !descr->empty())
+			arch_hint_stack.push_back(std::move(*descr));
+	}
 }
 
 NetlistContext::NetlistContext(
@@ -3909,9 +4078,31 @@ struct SlangFrontend : Frontend {
 
 			bool in_succesful_failtest = false;
 
+			// Architectural-variant expansion must run before the first
+			// getAllDiagnostics() call: every variant configuration is
+			// force-elaborated so its diagnostics land in the compilation's
+			// (cached) diagnostics like those of static code.
+			std::optional<ArchVariantExpander> arch_variants;
+			if (settings.arch_variants.value_or(false)) {
+				arch_variants.emplace(settings, *compilation);
+				arch_variants->run();
+			}
+
 			driver.reportCompilation(*compilation,/* quiet */ false);
 			if (check_diagnostics(driver.diagEngine, compilation->getAllDiagnostics(), /*last=*/false))
 				in_succesful_failtest = true;
+
+			if (arch_variants) {
+				slang::Diagnostics av_diags;
+				av_diags.append_range(arch_variants->issued_diagnostics);
+				av_diags.sort(driver.sourceManager);
+
+				if (check_diagnostics(driver.diagEngine, av_diags, /*last=*/false))
+					in_succesful_failtest = true;
+
+				for (auto &diag : av_diags)
+					driver.diagEngine.issue(diag);
+			}
 
 			if (driver.diagEngine.getNumErrors()) {
 				// Stop here should there have been any errors from AST compilation,
@@ -3933,6 +4124,19 @@ struct SlangFrontend : Frontend {
 			ModuleNameResolver module_names(settings);
 			for (auto instance : compilation->getRoot().topInstances)
 				module_names.scan_instance(*instance, true);
+
+			if (arch_variants) {
+				// canonical bodies are settled now; resolve them, then
+				// register the synthetic variant bodies for naming
+				arch_variants->resolve_bodies();
+				for (auto &emission : arch_variants->emissions) {
+					if (emission.synthetic)
+						module_names.scan_arch_variant(*emission.instance,
+								arch_variants->groups[emission.group_index].origin_body,
+								emission.suffix);
+				}
+			}
+
 			module_names.finalize();
 
 			HierarchyQueue hqueue(module_names);
@@ -3949,6 +4153,32 @@ struct SlangFrontend : Frontend {
 															 *compilation, *ref_body->parentInstance);
 				log_assert(new_);
 				netlist.canvas->attributes[ID::top] = 1;
+			}
+
+			if (arch_variants) {
+				// enqueue every variant module (both instantiated and
+				// synthetic ones) and stamp the arch-variant attributes
+				for (auto &emission : arch_variants->emissions) {
+					auto &group = arch_variants->groups[emission.group_index];
+					const ast::InstanceBodySymbol *ref_body = emission.body;
+					log_assert(ref_body->parentInstance);
+					auto [netlist, new_] = hqueue.get_or_emplace(ref_body, design, settings,
+																 *compilation, *ref_body->parentInstance);
+					(void) new_;
+
+					std::string origin_name = module_names.module_name(*group.origin_body).str();
+					if (!origin_name.empty() && origin_name[0] == '\\')
+						origin_name = origin_name.substr(1);
+
+					RTLIL::Module *canvas = netlist.canvas;
+					canvas->set_string_attribute(RTLIL::escape_id("arch_variant_origin"),
+							std::string(group.definition->name));
+					canvas->set_string_attribute(RTLIL::escape_id("arch_variant_descr"),
+							emission.descr);
+					canvas->set_string_attribute(RTLIL::escape_id("arch_variant_group"),
+							origin_name + "__" + module_hash_fragment(group.nonselector_signature));
+					canvas->attributes[ID::keep_hierarchy] = RTLIL::Const(1);
+				}
 			}
 
 			for (int i = 0; i < (int) hqueue.queue.size(); i++) {

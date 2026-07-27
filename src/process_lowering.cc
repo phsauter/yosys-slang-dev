@@ -392,6 +392,10 @@ struct UpdatePlanNode {
 	const ast::ForLoopStatement *for_stmt = nullptr;
 	const ast::VariableSymbol *local = nullptr;
 	const ast::StatementBlockSymbol *scope = nullptr;
+	// arch_variant_descr from the originating statement ("" if none); applied
+	// while the assignment's RHS is materialized so RHS operator cells (and
+	// only those) inherit the statement-level hint
+	std::string arch_descr;
 
 	struct CaseItem {
 		std::vector<const ast::Expression *> exprs;
@@ -441,6 +445,13 @@ public:
 
 		UpdatePlanNode node{UpdatePlanNode::Assign};
 		node.assign = &assign;
+		if (eval.netlist.arch_hints_enabled) {
+			node.arch_descr = arch_variant_descr_attribute<ast::Statement>(
+					eval.netlist.compilation, stmt).value_or("");
+			if (node.arch_descr.empty())
+				node.arch_descr = arch_variant_descr_lhs_attribute(
+					eval.netlist.compilation, assign.left()).value_or("");
+		}
 		emit(std::move(node));
 	}
 
@@ -736,9 +747,16 @@ private:
 	void materialize_node(const UpdatePlanNode &node)
 	{
 		switch (node.kind) {
-		case UpdatePlanNode::Assign:
-			apply_assignment(*node.assign);
+		case UpdatePlanNode::Assign: {
+			if (netlist.arch_hints_enabled) {
+				ArchHintGuard hint_guard(netlist, node.arch_descr.empty()
+						? std::nullopt : std::optional<std::string>(node.arch_descr));
+				apply_assignment(*node.assign);
+			} else {
+				apply_assignment(*node.assign);
+			}
 			return;
+		}
 		case UpdatePlanNode::Scope: {
 			EnterAutomaticScopeGuard guard(eval, node.scope);
 			materialize_body(node.body);

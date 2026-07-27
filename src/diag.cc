@@ -132,6 +132,18 @@ DiagCode ReadmemInvalidAddress(DiagSubsystem::Netlist, 1080);
 DiagCode ReadmemAddressOutsideOfRange(DiagSubsystem::Netlist, 1081);
 DiagCode ReadmemWordsRangeMismatch(DiagSubsystem::Netlist, 1082);
 DiagCode ReadmemBadBinaryDigit(DiagSubsystem::Netlist, 1083);
+DiagCode ArchVariantBadSelector(DiagSubsystem::Netlist, 1084);
+DiagCode ArchVariantEmptyValues(DiagSubsystem::Netlist, 1085);
+DiagCode ArchVariantMissingConfigs(DiagSubsystem::Netlist, 1086);
+DiagCode ArchVariantBadConfigs(DiagSubsystem::Netlist, 1087);
+DiagCode ArchVariantUnknownParam(DiagSubsystem::Netlist, 1088);
+DiagCode ArchVariantConfigValue(DiagSubsystem::Netlist, 1089);
+DiagCode ArchVariantDuplicateConfig(DiagSubsystem::Netlist, 1090);
+DiagCode ArchVariantBadDefault(DiagSubsystem::Netlist, 1091);
+DiagCode ArchVariantComboIllegal(DiagSubsystem::Netlist, 1092);
+DiagCode ArchVariantComboUnlisted(DiagSubsystem::Netlist, 1093);
+DiagCode ArchVariantUnsupported(DiagSubsystem::Netlist, 1094);
+DiagCode NoteModuleNotDissolvedBecauseArchVariant(DiagSubsystem::Netlist, 1095);
 
 DiagGroup unsynthesizable("unsynthesizable",
 		{IffUnsupported, GenericTimingUnsyn, BothEdgesUnsupported, ExpectingIfElseAload,
@@ -352,6 +364,31 @@ void setup_messages(slang::DiagnosticEngine &engine)
 
 	engine.setMessage(ReadmemBadBinaryDigit, "digit larger than 1 is used in '{}'");
 	engine.setSeverity(ReadmemBadBinaryDigit, DiagnosticSeverity::Error);
+
+	engine.setMessage(ArchVariantBadSelector, "'arch_variant' attribute is only supported on an overridable parameter of type string");
+	engine.setSeverity(ArchVariantBadSelector, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantEmptyValues, "'arch_variant' valid-value list of selector '{}' is empty");
+	engine.setSeverity(ArchVariantEmptyValues, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantMissingConfigs, "module '{}' has multiple variant selectors but no 'arch_variant_configs' attribute");
+	engine.setSeverity(ArchVariantMissingConfigs, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantBadConfigs, "malformed 'arch_variant_configs' attribute: {}");
+	engine.setSeverity(ArchVariantBadConfigs, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantUnknownParam, "'arch_variant_configs' references '{}' which is not a variant selector of module '{}'");
+	engine.setSeverity(ArchVariantUnknownParam, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantConfigValue, "value '{}' is not a valid value of variant selector '{}'");
+	engine.setSeverity(ArchVariantConfigValue, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantDuplicateConfig, "duplicate configuration item in 'arch_variant_configs'");
+	engine.setSeverity(ArchVariantDuplicateConfig, DiagnosticSeverity::Warning);
+	engine.setMessage(ArchVariantBadDefault, "default value '{}' of variant selector '{}' is not in its valid-value list");
+	engine.setSeverity(ArchVariantBadDefault, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantComboIllegal, "instance uses variant selector combination '{}' not listed in STRICT 'arch_variant_configs' of module '{}'");
+	engine.setSeverity(ArchVariantComboIllegal, DiagnosticSeverity::Error);
+	engine.setMessage(ArchVariantComboUnlisted, "instance uses variant selector combination '{}' not listed in 'arch_variant_configs' of module '{}'");
+	engine.setSeverity(ArchVariantComboUnlisted, DiagnosticSeverity::Warning);
+	engine.setMessage(ArchVariantUnsupported, "architectural variants of module '{}' not expanded: {}");
+	engine.setSeverity(ArchVariantUnsupported, DiagnosticSeverity::Warning);
+	engine.setMessage(NoteModuleNotDissolvedBecauseArchVariant, "instance of module '{}' will not dissolve because the module has architectural variants");
+	engine.setSeverity(NoteModuleNotDissolvedBecauseArchVariant, DiagnosticSeverity::Note);
 	// clang-format on
 }
 }; // namespace diag

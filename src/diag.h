@@ -88,6 +88,18 @@ extern slang::DiagCode ReadmemInvalidAddress;
 extern slang::DiagCode ReadmemAddressOutsideOfRange;
 extern slang::DiagCode ReadmemWordsRangeMismatch;
 extern slang::DiagCode ReadmemBadBinaryDigit;
+extern slang::DiagCode ArchVariantBadSelector;
+extern slang::DiagCode ArchVariantEmptyValues;
+extern slang::DiagCode ArchVariantMissingConfigs;
+extern slang::DiagCode ArchVariantBadConfigs;
+extern slang::DiagCode ArchVariantUnknownParam;
+extern slang::DiagCode ArchVariantConfigValue;
+extern slang::DiagCode ArchVariantDuplicateConfig;
+extern slang::DiagCode ArchVariantBadDefault;
+extern slang::DiagCode ArchVariantComboIllegal;
+extern slang::DiagCode ArchVariantComboUnlisted;
+extern slang::DiagCode ArchVariantUnsupported;
+extern slang::DiagCode NoteModuleNotDissolvedBecauseArchVariant;
 
 void setup_messages(slang::DiagnosticEngine &engine);
 }; // namespace diag
