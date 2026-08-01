@@ -1,0 +1,61 @@
+read_slang <<SV
+module packed_struct_dynamic_lhs_gold (
+  input  logic [42:0] raw_i,
+  input  logic        outer_i,
+  input  logic        inner_i,
+  input  logic [2:0]  base_i,
+  input  logic [2:0]  data_i,
+  output logic [42:0] packet_o
+);
+  typedef struct packed {
+    logic [3:0] field;
+    logic [1:0][7:0] lane;
+  } node_t;
+  typedef struct packed {
+    logic [2:0] head;
+    node_t [1:0] arr;
+  } packet_t;
+  packet_t packet;
+
+  always_comb begin
+    packet = packet_t'(raw_i);
+    packet.arr[outer_i].lane[inner_i][base_i +: 3] = data_i;
+    packet_o = packet;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module packed_struct_dynamic_lhs_gate (
+  input  logic [42:0] raw_i,
+  input  logic        outer_i,
+  input  logic        inner_i,
+  input  logic [2:0]  base_i,
+  input  logic [2:0]  data_i,
+  output logic [42:0] packet_o
+);
+  typedef struct packed {
+    logic [3:0] field;
+    logic [1:0][7:0] lane;
+  } node_t;
+  typedef struct packed {
+    logic [2:0] head;
+    node_t [1:0] arr;
+  } packet_t;
+  packet_t packet;
+
+  always_comb begin
+    packet = packet_t'(raw_i);
+    packet.arr[outer_i].lane[inner_i][base_i +: 3] = data_i;
+    packet_o = packet;
+  end
+endmodule
+SV
+
+select -assert-none packed_struct_dynamic_lhs_gate/p:*
+
+proc; opt
+miter -equiv -flatten packed_struct_dynamic_lhs_gold packed_struct_dynamic_lhs_gate packed_struct_dynamic_lhs_miter
+sat -verify -prove trigger 0 packed_struct_dynamic_lhs_miter

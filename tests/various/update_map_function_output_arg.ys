@@ -1,0 +1,43 @@
+read_slang <<SV
+module function_output_arg_gold (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [7:0] side_o
+);
+  function automatic logic [7:0] transform(
+    input logic [7:0] value,
+    output logic [7:0] side
+  );
+    side = value ^ 8'h5a;
+    return value + 8'd3;
+  endfunction
+
+  always_comb
+    value_o = transform(data_i, side_o);
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_output_arg_gate (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [7:0] side_o
+);
+  function automatic logic [7:0] transform(
+    input logic [7:0] value,
+    output logic [7:0] side
+  );
+    side = value ^ 8'h5a;
+    return value + 8'd3;
+  endfunction
+
+  always_comb
+    value_o = transform(data_i, side_o);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_output_arg_gold function_output_arg_gate function_output_arg_miter
+sat -verify -prove trigger 0 function_output_arg_miter

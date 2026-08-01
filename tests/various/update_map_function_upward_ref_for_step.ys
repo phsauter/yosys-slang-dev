@@ -1,0 +1,45 @@
+read_slang <<SV
+module function_upward_ref_for_step_gold (
+  input  logic       side_i,
+  input  logic [1:0] data_i,
+  output logic [1:0] data_o,
+  output logic       side_o
+);
+  function automatic int next_index(input int current, input logic side);
+    side_o = side;
+    return current + 1;
+  endfunction
+
+  always_comb begin
+    data_o = '0;
+    for (int i = 0; i < 2; i = next_index(i, side_i))
+      data_o[i] = data_i[i];
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_upward_ref_for_step_gate (
+  input  logic       side_i,
+  input  logic [1:0] data_i,
+  output logic [1:0] data_o,
+  output logic       side_o
+);
+  function automatic int next_index(input int current, input logic side);
+    side_o = side;
+    return current + 1;
+  endfunction
+
+  always_comb begin
+    data_o = '0;
+    for (int i = 0; i < 2; i = next_index(i, side_i))
+      data_o[i] = data_i[i];
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_upward_ref_for_step_gold function_upward_ref_for_step_gate function_upward_ref_for_step_miter
+sat -verify -prove trigger 0 function_upward_ref_for_step_miter

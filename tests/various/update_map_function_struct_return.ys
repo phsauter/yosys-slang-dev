@@ -1,0 +1,61 @@
+read_slang <<SV
+module function_struct_return_gold (
+  input  logic [7:0] data_i,
+  input  logic [2:0] base_i,
+  input  logic [1:0] patch_i,
+  output logic [10:0] result_o
+);
+  typedef struct packed {
+    logic [2:0] tag;
+    logic [7:0] data;
+  } result_t;
+  result_t result;
+
+  function automatic result_t make_result(input logic [7:0] value);
+    result_t temporary;
+    temporary.tag = ^value;
+    temporary.data = value ^ 8'h96;
+    return temporary;
+  endfunction
+
+  always_comb begin
+    result = make_result(data_i);
+    result.data[base_i +: 2] = patch_i;
+    result_o = result;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_struct_return_gate (
+  input  logic [7:0] data_i,
+  input  logic [2:0] base_i,
+  input  logic [1:0] patch_i,
+  output logic [10:0] result_o
+);
+  typedef struct packed {
+    logic [2:0] tag;
+    logic [7:0] data;
+  } result_t;
+  result_t result;
+
+  function automatic result_t make_result(input logic [7:0] value);
+    result_t temporary;
+    temporary.tag = ^value;
+    temporary.data = value ^ 8'h96;
+    return temporary;
+  endfunction
+
+  always_comb begin
+    result = make_result(data_i);
+    result.data[base_i +: 2] = patch_i;
+    result_o = result;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_struct_return_gold function_struct_return_gate function_struct_return_miter
+sat -verify -prove trigger 0 function_struct_return_miter

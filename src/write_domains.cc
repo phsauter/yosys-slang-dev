@@ -309,7 +309,11 @@ private:
 		if (!ast::ValueSymbol::isKind(symbol.kind))
 			return false;
 
-		bits = Variable::from_symbol(&symbol);
+		// Automatic variables are distinguished by the active scope nesting
+		// level. Use the evaluation context so the classifier produces the
+		// same Variable identity as declaration initialization and expression
+		// evaluation.
+		bits = eval.variable(symbol);
 		return true;
 	}
 

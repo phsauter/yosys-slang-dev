@@ -1,0 +1,57 @@
+read_slang <<SV
+module unpacked_union_gold (
+  input  logic [7:0] data_i,
+  input  logic       swap_i,
+  output logic [7:0] data_o
+);
+  typedef union {
+    logic [7:0] byte_value;
+    struct {
+      logic [3:0] high;
+      logic [3:0] low;
+    } nibbles;
+  } byte_u;
+  byte_u value;
+
+  always_comb begin
+    value.byte_value = data_i;
+    if (swap_i) begin
+      value.nibbles.high = data_i[3:0];
+      value.nibbles.low = data_i[7:4];
+    end
+    data_o = value.byte_value;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module unpacked_union_gate (
+  input  logic [7:0] data_i,
+  input  logic       swap_i,
+  output logic [7:0] data_o
+);
+  typedef union {
+    logic [7:0] byte_value;
+    struct {
+      logic [3:0] high;
+      logic [3:0] low;
+    } nibbles;
+  } byte_u;
+  byte_u value;
+
+  always_comb begin
+    value.byte_value = data_i;
+    if (swap_i) begin
+      value.nibbles.high = data_i[3:0];
+      value.nibbles.low = data_i[7:4];
+    end
+    data_o = value.byte_value;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten unpacked_union_gold unpacked_union_gate unpacked_union_miter
+sat -verify -prove trigger 0 unpacked_union_miter

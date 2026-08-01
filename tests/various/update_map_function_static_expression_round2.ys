@@ -1,0 +1,51 @@
+read_slang <<SV
+module function_static_expression_round2_gold (
+  input  logic [7:0] first_i,
+  input  logic [7:0] second_i,
+  output logic [15:0] observed_o
+);
+  function automatic logic [7:0] remember(input logic [7:0] value);
+    static logic [7:0] remembered;
+    automatic logic [7:0] previous;
+    previous = remembered;
+    remembered = value;
+    return previous;
+  endfunction
+
+  always_comb
+    observed_o = {remember(first_i), remember(second_i)};
+endmodule
+SV
+
+proc; opt
+
+logger -expect log "slang-update-map falling back to process lowering module=function_static_expression_round2_gate reason=unsupported assignment shape" 1
+read_slang --use-update-map-lowering <<SV
+module function_static_expression_round2_gate (
+  input  logic [7:0] first_i,
+  input  logic [7:0] second_i,
+  output logic [15:0] observed_o
+);
+  function automatic logic [7:0] remember(input logic [7:0] value);
+    static logic [7:0] remembered;
+    automatic logic [7:0] previous;
+    previous = remembered;
+    remembered = value;
+    return previous;
+  endfunction
+
+  always_comb
+    observed_o = {remember(first_i), remember(second_i)};
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten -make_outputs function_static_expression_round2_gold function_static_expression_round2_gate function_static_expression_round2_miter
+sat -verify -prove trigger 0 -show-inputs -show-outputs function_static_expression_round2_miter
+
+cd function_static_expression_round2_gold
+sat -verify -prove observed_o[7:0] first_i
+cd ..
+
+cd function_static_expression_round2_gate
+sat -verify -prove observed_o[7:0] first_i

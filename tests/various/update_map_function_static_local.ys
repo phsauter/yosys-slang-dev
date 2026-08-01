@@ -1,0 +1,56 @@
+read_slang <<SV
+module function_static_local_gold (
+  input  logic [7:0] first_i,
+  input  logic [7:0] second_i,
+  output logic [7:0] observed_o
+);
+  function automatic logic [7:0] remember(input logic [7:0] value);
+    static logic [7:0] remembered;
+    automatic logic [7:0] previous;
+    previous = remembered;
+    remembered = value;
+    return previous;
+  endfunction
+
+  logic [7:0] discarded;
+  always_comb begin
+    discarded = remember(first_i);
+    observed_o = remember(second_i);
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_static_local_gate (
+  input  logic [7:0] first_i,
+  input  logic [7:0] second_i,
+  output logic [7:0] observed_o
+);
+  function automatic logic [7:0] remember(input logic [7:0] value);
+    static logic [7:0] remembered;
+    automatic logic [7:0] previous;
+    previous = remembered;
+    remembered = value;
+    return previous;
+  endfunction
+
+  logic [7:0] discarded;
+  always_comb begin
+    discarded = remember(first_i);
+    observed_o = remember(second_i);
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_static_local_gold function_static_local_gate function_static_local_miter
+sat -verify -prove trigger 0 function_static_local_miter
+
+cd function_static_local_gold
+sat -verify -prove observed_o first_i
+cd ..
+
+cd function_static_local_gate
+sat -verify -prove observed_o first_i

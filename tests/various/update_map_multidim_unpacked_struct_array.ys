@@ -1,0 +1,59 @@
+read_slang <<SV
+module multidim_unpacked_struct_array_gold (
+  input  logic [1:0][1:0][7:0] data_i,
+  input  logic                    row_i,
+  input  logic                    column_i,
+  input  logic [2:0]              base_i,
+  input  logic [2:0]              patch_i,
+  output logic [1:0][1:0][9:0]   data_o
+);
+  typedef struct packed {
+    logic [1:0] tag;
+    logic [7:0] data;
+  } item_t;
+  item_t items [2][2];
+
+  always_comb begin
+    for (int row = 0; row < 2; row++)
+      for (int column = 0; column < 2; column++)
+        items[row][column] = item_t'({row[0], column[0], data_i[row][column]});
+    items[row_i][column_i].data[base_i +: 3] = patch_i;
+    for (int row = 0; row < 2; row++)
+      for (int column = 0; column < 2; column++)
+        data_o[row][column] = items[row][column];
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module multidim_unpacked_struct_array_gate (
+  input  logic [1:0][1:0][7:0] data_i,
+  input  logic                    row_i,
+  input  logic                    column_i,
+  input  logic [2:0]              base_i,
+  input  logic [2:0]              patch_i,
+  output logic [1:0][1:0][9:0]   data_o
+);
+  typedef struct packed {
+    logic [1:0] tag;
+    logic [7:0] data;
+  } item_t;
+  item_t items [2][2];
+
+  always_comb begin
+    for (int row = 0; row < 2; row++)
+      for (int column = 0; column < 2; column++)
+        items[row][column] = item_t'({row[0], column[0], data_i[row][column]});
+    items[row_i][column_i].data[base_i +: 3] = patch_i;
+    for (int row = 0; row < 2; row++)
+      for (int column = 0; column < 2; column++)
+        data_o[row][column] = items[row][column];
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten multidim_unpacked_struct_array_gold multidim_unpacked_struct_array_gate multidim_unpacked_struct_array_miter
+sat -verify -prove trigger 0 multidim_unpacked_struct_array_miter

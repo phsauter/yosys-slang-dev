@@ -7,6 +7,7 @@
 
 #include "slang/ast/Statement.h"
 #include "slang/ast/expressions/AssignmentExpressions.h"
+#include "slang/ast/expressions/CallExpression.h"
 #include "slang/ast/expressions/ConversionExpression.h"
 #include "slang/ast/expressions/MiscExpressions.h"
 #include "slang/ast/expressions/SelectExpressions.h"
@@ -305,15 +306,113 @@ static bool has_nested_assignment(const ast::Expression &expr)
 	return found;
 }
 
+static bool has_nested_assignment_below(const ast::Expression &expr)
+{
+	if (expr.kind != ast::ExpressionKind::Assignment)
+		return has_nested_assignment(expr);
+
+	const auto &assign = expr.as<ast::AssignmentExpression>();
+	return has_nested_assignment(assign.left()) ||
+			has_nested_assignment(assign.right());
+}
+
+static bool subroutine_has_controlled_return(const ast::SubroutineSymbol &subroutine)
+{
+	int control_depth = 0;
+	bool found = false;
+	auto visitor = ast::makeVisitor(
+			[&](auto& visitor, const ast::ConditionalStatement &stmt) {
+				control_depth++;
+				visitor.visitDefault(stmt);
+				control_depth--;
+			},
+			[&](auto& visitor, const ast::CaseStatement &stmt) {
+				control_depth++;
+				visitor.visitDefault(stmt);
+				control_depth--;
+			},
+			[&](auto& visitor, const ast::ForLoopStatement &stmt) {
+				control_depth++;
+				visitor.visitDefault(stmt);
+				control_depth--;
+			},
+			[&](auto& visitor, const ast::WhileLoopStatement &stmt) {
+				control_depth++;
+				visitor.visitDefault(stmt);
+				control_depth--;
+			},
+			[&](auto& visitor, const ast::ForeachLoopStatement &stmt) {
+				control_depth++;
+				visitor.visitDefault(stmt);
+				control_depth--;
+			},
+			[&](auto&, const ast::ReturnStatement&) {
+				if (control_depth > 0)
+					found = true;
+			});
+	subroutine.getBody().visit(visitor);
+	return found;
+}
+
 static bool has_hierarchical_value(const ast::Expression &expr)
 {
 	if (expr.kind == ast::ExpressionKind::HierarchicalValue)
 		return true;
 
 	bool found = false;
-	expr.visit(ast::makeVisitor([&](auto&, const ast::HierarchicalValueExpression&) {
-		found = true;
-	}));
+	Yosys::pool<const ast::SubroutineSymbol *> visited_subroutines;
+	const ast::SubroutineSymbol *active_subroutine = nullptr;
+	auto is_subroutine_local = [](const ast::ValueSymbol &symbol,
+			const ast::SubroutineSymbol &subroutine) {
+		const ast::Scope *scope = symbol.getParentScope();
+		while (scope) {
+			if (&scope->asSymbol() == &subroutine)
+				return true;
+			scope = scope->asSymbol().getParentScope();
+		}
+		return false;
+	};
+	auto visitor = ast::makeVisitor(
+			[&](auto&, const ast::NamedValueExpression &value) {
+				if (active_subroutine && ast::ValueSymbol::isKind(value.symbol.kind)) {
+					const auto &symbol = value.symbol.as<ast::ValueSymbol>();
+					bool persistent_local =
+							ast::VariableSymbol::isKind(symbol.kind) &&
+							symbol.as<ast::VariableSymbol>().lifetime ==
+									ast::VariableLifetime::Static;
+					if (persistent_local ||
+							!is_subroutine_local(symbol, *active_subroutine))
+						found = true;
+				}
+			},
+			[&](auto&, const ast::HierarchicalValueExpression &value) {
+				if (!active_subroutine || !ast::ValueSymbol::isKind(value.symbol.kind) ||
+						!is_subroutine_local(
+								value.symbol.as<ast::ValueSymbol>(), *active_subroutine))
+					found = true;
+			},
+			[&](auto& visitor, const ast::CallExpression &call) {
+				visitor.visitDefault(call);
+				if (call.isSystemCall())
+					return;
+
+				auto *subroutine = std::get<0>(call.subroutine);
+				if (visited_subroutines.insert(subroutine).second) {
+					// Function-local static state can make sibling evaluation
+					// order observable. Controlled returns also create procedural
+					// case actions that the update map does not represent. Retain
+					// classic process lowering for either form.
+					if (subroutine_has_controlled_return(*subroutine)) {
+						found = true;
+						return;
+					}
+					auto *saved_subroutine = active_subroutine;
+					active_subroutine = subroutine;
+					subroutine->getBody().visit(visitor);
+					active_subroutine = saved_subroutine;
+				}
+			});
+	expr.visit(visitor);
 	return found;
 }
 
@@ -344,11 +443,10 @@ static bool lhs_shape_supported(EvalContext &eval, const ast::Expression &lhs)
 		return lhs_shape_supported(eval, lhs.as<ast::RangeSelectExpression>().value());
 	}
 	case ast::ExpressionKind::Concatenation:
-		for (auto operand : lhs.as<ast::ConcatenationExpression>().operands()) {
-			if (!lhs_shape_supported(eval, *operand))
-				return false;
-		}
-		return true;
+		// The materializer currently updates one variable root per event.
+		// Concatenations can span multiple roots, so reject them before
+		// materialization can emit cells and fall back to process lowering.
+		return false;
 	case ast::ExpressionKind::MemberAccess: {
 		const auto &access = lhs.as<ast::MemberAccessExpression>();
 		return access.member.kind == ast::SymbolKind::Field &&
@@ -436,8 +534,7 @@ public:
 		const auto &assign = stmt.expr.as<ast::AssignmentExpression>();
 		record_expr_assignments(stmt.expr);
 
-		if (assign.isCompound() ||
-				has_nested_assignment(assign.right()) ||
+		if (has_nested_assignment(assign.right()) ||
 				has_hierarchical_value(assign.right()) ||
 				has_hierarchical_value(assign.left()) ||
 				!lhs_shape_supported(eval, assign.left()))
@@ -542,13 +639,17 @@ public:
 
 		for (auto init : stmt.initializers) {
 			record_expr_assignments(*init);
+			if (has_nested_assignment_below(*init) ||
+					has_hierarchical_value(*init))
+				reject("unsupported for-loop initializer");
 			if (init->kind == ast::ExpressionKind::Assignment &&
 					!lhs_shape_supported(eval,
 							init->as<ast::AssignmentExpression>().left()))
 				reject("unsupported for-loop initializer");
 		}
 
-		if (!stmt.stopExpr || has_hierarchical_value(*stmt.stopExpr))
+		if (!stmt.stopExpr || has_nested_assignment(*stmt.stopExpr) ||
+				has_hierarchical_value(*stmt.stopExpr))
 			reject("unsupported for-loop stop expression");
 		else
 			record_expr_assignments(*stmt.stopExpr);
@@ -559,6 +660,9 @@ public:
 
 		for (auto step : stmt.steps) {
 			record_expr_assignments(*step);
+			if (has_nested_assignment_below(*step) ||
+					has_hierarchical_value(*step))
+				reject("unsupported for-loop step");
 			if (step->kind == ast::ExpressionKind::Assignment &&
 					!lhs_shape_supported(eval,
 							step->as<ast::AssignmentExpression>().left()))
@@ -604,6 +708,12 @@ public:
 
 	void handle(const ast::VariableDeclStatement &stmt)
 	{
+		if (auto *initializer = stmt.symbol.getInitializer()) {
+			if (has_nested_assignment(*initializer) ||
+					has_hierarchical_value(*initializer))
+				reject("unsupported local initializer");
+		}
+
 		UpdatePlanNode node{UpdatePlanNode::LocalDecl};
 		node.local = &stmt.symbol;
 		emit(std::move(node));
@@ -1310,7 +1420,11 @@ private:
 							event.mask);
 				}
 			}
-			procedure.vstate.set(event.bits, merged);
+			// Keep ProceduralContext's blocking-assignment bookkeeping in
+			// sync with the materialized state. Later RHS evaluation consults
+			// that bookkeeping before substituting vstate for a static wire.
+			procedure.do_simple_assign(
+					slang::SourceLocation::NoLocation, event.bits, merged, true);
 			driven_bits.append(event.bits);
 		}
 
@@ -1335,11 +1449,9 @@ private:
 			return false;
 
 		bool found = false;
-		expr.visit(ast::makeVisitor([&](auto&, const ast::Expression &node) {
-			if (node.kind != ast::ExpressionKind::NamedValue)
-				return;
-
-			const auto &value = node.as<ast::ValueExpressionBase>();
+		// Match the leaf type so makeVisitor keeps its default recursive walk
+		// through operators, casts, selects, and call arguments.
+		expr.visit(ast::makeVisitor([&](auto&, const ast::NamedValueExpression &value) {
 			if (ast::ValueSymbol::isKind(value.symbol.kind) &&
 					pending_reads_value(value.symbol.as<ast::ValueSymbol>()))
 				found = true;

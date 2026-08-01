@@ -1,0 +1,65 @@
+read_slang <<SV
+module enum_struct_case_gold (
+  input  logic [1:0] op_i,
+  input  logic [7:0] data_i,
+  input  logic [2:0] base_i,
+  input  logic       patch_i,
+  output logic [9:0] packet_o
+);
+  typedef enum logic [1:0] {IDLE, LOAD, STORE, ERROR} kind_e;
+  typedef kind_e kind_alias_e;
+  typedef struct packed {
+    kind_alias_e kind;
+    logic [7:0] payload;
+  } packet_t;
+  packet_t packet;
+
+  always_comb begin
+    case (op_i)
+      2'd0: packet = packet_t'({IDLE,  8'h00});
+      2'd1: packet = packet_t'({LOAD,  data_i});
+      2'd2: packet = packet_t'({STORE, ~data_i});
+      default: packet = packet_t'({ERROR, 8'hff});
+    endcase
+    if (patch_i)
+      packet.payload[base_i +: 2] = op_i;
+    packet_o = packet;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module enum_struct_case_gate (
+  input  logic [1:0] op_i,
+  input  logic [7:0] data_i,
+  input  logic [2:0] base_i,
+  input  logic       patch_i,
+  output logic [9:0] packet_o
+);
+  typedef enum logic [1:0] {IDLE, LOAD, STORE, ERROR} kind_e;
+  typedef kind_e kind_alias_e;
+  typedef struct packed {
+    kind_alias_e kind;
+    logic [7:0] payload;
+  } packet_t;
+  packet_t packet;
+
+  always_comb begin
+    case (op_i)
+      2'd0: packet = packet_t'({IDLE,  8'h00});
+      2'd1: packet = packet_t'({LOAD,  data_i});
+      2'd2: packet = packet_t'({STORE, ~data_i});
+      default: packet = packet_t'({ERROR, 8'hff});
+    endcase
+    if (patch_i)
+      packet.payload[base_i +: 2] = op_i;
+    packet_o = packet;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten enum_struct_case_gold enum_struct_case_gate enum_struct_case_miter
+sat -verify -prove trigger 0 enum_struct_case_miter

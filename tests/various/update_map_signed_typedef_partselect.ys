@@ -1,0 +1,59 @@
+read_slang <<SV
+module signed_typedef_partselect_gold (
+  input  logic signed [11:0] value_i,
+  input  logic        [3:0]  patch_i,
+  input  logic        [3:0]  flags_i,
+  input  logic        [3:0]  base_i,
+  output logic signed [11:0] value_o,
+  output logic        [3:0]  flags_o
+);
+  typedef logic signed [11:0] signed_word_t;
+  typedef signed_word_t word_alias_t;
+  typedef struct packed {
+    word_alias_t value;
+    logic [3:0] flags;
+  } record_t;
+  record_t record;
+
+  always_comb begin
+    record = record_t'({value_i, flags_i});
+    record.value[base_i +: 4] = $unsigned(patch_i);
+    record.flags = $unsigned(record.value[3:0]) ^ flags_i;
+    value_o = $signed(record.value);
+    flags_o = record.flags;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module signed_typedef_partselect_gate (
+  input  logic signed [11:0] value_i,
+  input  logic        [3:0]  patch_i,
+  input  logic        [3:0]  flags_i,
+  input  logic        [3:0]  base_i,
+  output logic signed [11:0] value_o,
+  output logic        [3:0]  flags_o
+);
+  typedef logic signed [11:0] signed_word_t;
+  typedef signed_word_t word_alias_t;
+  typedef struct packed {
+    word_alias_t value;
+    logic [3:0] flags;
+  } record_t;
+  record_t record;
+
+  always_comb begin
+    record = record_t'({value_i, flags_i});
+    record.value[base_i +: 4] = $unsigned(patch_i);
+    record.flags = $unsigned(record.value[3:0]) ^ flags_i;
+    value_o = $signed(record.value);
+    flags_o = record.flags;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten signed_typedef_partselect_gold signed_typedef_partselect_gate signed_typedef_partselect_miter
+sat -verify -prove trigger 0 signed_typedef_partselect_miter

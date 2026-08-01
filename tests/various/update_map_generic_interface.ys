@@ -1,0 +1,67 @@
+read_slang --top generic_interface_gold <<SV
+interface generic_bus_gold;
+  logic       valid;
+  logic [7:0] data;
+endinterface
+
+module generic_leaf_gold(
+  generic_bus_gold bus,
+  input  logic [7:0] mask_i,
+  output logic [7:0] data_o
+);
+  always_comb begin
+    data_o = '0;
+    if (bus.valid)
+      data_o = bus.data ^ mask_i;
+  end
+endmodule
+
+module generic_interface_gold (
+  input  logic       valid_i,
+  input  logic [7:0] data_i,
+  input  logic [7:0] mask_i,
+  output logic [7:0] data_o
+);
+  generic_bus_gold bus();
+  assign bus.valid = valid_i;
+  assign bus.data = data_i;
+  generic_leaf_gold leaf(bus, mask_i, data_o);
+endmodule
+SV
+
+proc; opt
+
+read_slang --top generic_interface_gate --use-update-map-lowering <<SV
+interface generic_bus_gate;
+  logic       valid;
+  logic [7:0] data;
+endinterface
+
+module generic_leaf_gate(
+  generic_bus_gate bus,
+  input  logic [7:0] mask_i,
+  output logic [7:0] data_o
+);
+  always_comb begin
+    data_o = '0;
+    if (bus.valid)
+      data_o = bus.data ^ mask_i;
+  end
+endmodule
+
+module generic_interface_gate (
+  input  logic       valid_i,
+  input  logic [7:0] data_i,
+  input  logic [7:0] mask_i,
+  output logic [7:0] data_o
+);
+  generic_bus_gate bus();
+  assign bus.valid = valid_i;
+  assign bus.data = data_i;
+  generic_leaf_gate leaf(bus, mask_i, data_o);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten generic_interface_gold generic_interface_gate generic_interface_miter
+sat -verify -prove trigger 0 generic_interface_miter

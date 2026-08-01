@@ -1,0 +1,37 @@
+read_slang <<SV
+module function_upward_ref_gold (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [7:0] side_o
+);
+  function automatic logic [7:0] transform(input logic [7:0] value);
+    side_o = value ^ 8'ha5;
+    return value + 8'd7;
+  endfunction
+
+  always_comb
+    value_o = transform(data_i);
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_upward_ref_gate (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [7:0] side_o
+);
+  function automatic logic [7:0] transform(input logic [7:0] value);
+    side_o = value ^ 8'ha5;
+    return value + 8'd7;
+  endfunction
+
+  always_comb
+    value_o = transform(data_i);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_upward_ref_gold function_upward_ref_gate function_upward_ref_miter
+sat -verify -prove trigger 0 function_upward_ref_miter

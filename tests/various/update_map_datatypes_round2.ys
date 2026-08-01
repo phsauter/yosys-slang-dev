@@ -1,0 +1,119 @@
+read_slang <<SV
+module datatypes_round2_gold (
+  input  logic [15:0] data_i,
+  input  logic [7:0]  patch_i,
+  input  logic [2:0]  base_i,
+  input  logic [2:0]  op_i,
+  output logic [34:0] result_o
+);
+  typedef union packed {
+    logic signed [15:0] signed_word;
+    logic [1:0][7:0] bytes;
+  } word_u;
+  typedef enum logic [2:0] {
+    E0, E1, E2, E3, E4, E5, E6, E7
+  } state_e;
+
+  function automatic logic [$bits(word_u)-1:0] fold(input word_u value);
+    logic [$bits(value)-1:0] temp;
+    temp = value;
+    for (int k = 0; k < $size(value.bytes); k++)
+      temp = {temp[14:0], temp[15]} ^ (16'h0101 << k);
+    return temp;
+  endfunction
+
+  word_u word;
+  state_e state;
+  always_comb begin
+    word = word_u'(data_i);
+    word.bytes[0][3:0] = patch_i[3:0];
+    word.signed_word[base_i +: 4] = $signed(patch_i[7:4]);
+    state = state_e'(op_i);
+    state = state_e'((state + op_i + 3'd1) & 3'h7);
+    result_o = {state, fold(word), word};
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module datatypes_round2_gate (
+  input  logic [15:0] data_i,
+  input  logic [7:0]  patch_i,
+  input  logic [2:0]  base_i,
+  input  logic [2:0]  op_i,
+  output logic [34:0] result_o
+);
+  typedef union packed {
+    logic signed [15:0] signed_word;
+    logic [1:0][7:0] bytes;
+  } word_u;
+  typedef enum logic [2:0] {
+    E0, E1, E2, E3, E4, E5, E6, E7
+  } state_e;
+
+  function automatic logic [$bits(word_u)-1:0] fold(input word_u value);
+    logic [$bits(value)-1:0] temp;
+    temp = value;
+    for (int k = 0; k < $size(value.bytes); k++)
+      temp = {temp[14:0], temp[15]} ^ (16'h0101 << k);
+    return temp;
+  endfunction
+
+  word_u word;
+  state_e state;
+  always_comb begin
+    word = word_u'(data_i);
+    word.bytes[0][3:0] = patch_i[3:0];
+    word.signed_word[base_i +: 4] = $signed(patch_i[7:4]);
+    state = state_e'(op_i);
+    state = state_e'((state + op_i + 3'd1) & 3'h7);
+    result_o = {state, fold(word), word};
+  end
+endmodule
+SV
+
+proc; opt; scc -expect 0
+miter -equiv -flatten datatypes_round2_gold datatypes_round2_gate datatypes_round2_miter
+sat -verify -prove trigger 0 datatypes_round2_miter
+
+design -reset
+
+read_slang <<SV
+module complex_lhs_round2_gold (
+  input  logic [15:0] data_i,
+  input  logic [7:0]  patch_i,
+  output logic [15:0] result_o
+);
+  logic [15:0] value;
+  always_comb begin
+    value = data_i;
+    {<<4{value}} = {patch_i, data_i[7:0]};
+    {value[3:0], value[3:0]} = patch_i;
+    result_o = value;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module complex_lhs_round2_gate (
+  input  logic [15:0] data_i,
+  input  logic [7:0]  patch_i,
+  output logic [15:0] result_o
+);
+  logic [15:0] value;
+  always_comb begin
+    value = data_i;
+    {<<4{value}} = {patch_i, data_i[7:0]};
+    {value[3:0], value[3:0]} = patch_i;
+    result_o = value;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten complex_lhs_round2_gold complex_lhs_round2_gate complex_lhs_round2_miter
+sat -verify -prove trigger 0 complex_lhs_round2_miter

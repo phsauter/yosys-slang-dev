@@ -1,0 +1,41 @@
+read_slang <<SV
+module function_upward_ref_local_init_gold (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [7:0] side_o
+);
+  function automatic logic [7:0] transform(input logic [7:0] value);
+    side_o = value ^ 8'hc3;
+    return value + 8'd11;
+  endfunction
+
+  always_comb begin : calculate
+    automatic logic [7:0] value = transform(data_i);
+    value_o = value;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_upward_ref_local_init_gate (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [7:0] side_o
+);
+  function automatic logic [7:0] transform(input logic [7:0] value);
+    side_o = value ^ 8'hc3;
+    return value + 8'd11;
+  endfunction
+
+  always_comb begin : calculate
+    automatic logic [7:0] value = transform(data_i);
+    value_o = value;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_upward_ref_local_init_gold function_upward_ref_local_init_gate function_upward_ref_local_init_miter
+sat -verify -prove trigger 0 function_upward_ref_local_init_miter

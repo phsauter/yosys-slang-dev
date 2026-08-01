@@ -1,0 +1,47 @@
+read_slang <<SV
+module fallback_automatic_local_gold (
+  input  logic       select_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] data_o,
+  output logic [1:0] marker_o
+);
+  always_comb begin : select_data
+    automatic logic [7:0] selected;
+    if (select_i)
+      selected = a_i;
+    else
+      selected = b_i;
+    data_o = selected;
+    {marker_o[1], marker_o[0]} = {select_i, ~select_i};
+  end
+endmodule
+SV
+
+proc; opt
+
+logger -expect log "slang-update-map falling back to process lowering module=fallback_automatic_local_gate reason=unsupported assignment shape" 1
+read_slang --use-update-map-lowering <<SV
+module fallback_automatic_local_gate (
+  input  logic       select_i,
+  input  logic [7:0] a_i,
+  input  logic [7:0] b_i,
+  output logic [7:0] data_o,
+  output logic [1:0] marker_o
+);
+  always_comb begin : select_data
+    automatic logic [7:0] selected;
+    if (select_i)
+      selected = a_i;
+    else
+      selected = b_i;
+    data_o = selected;
+    {marker_o[1], marker_o[0]} = {select_i, ~select_i};
+  end
+endmodule
+SV
+logger -check-expected
+
+proc; opt
+miter -equiv -flatten fallback_automatic_local_gold fallback_automatic_local_gate fallback_automatic_local_miter
+sat -verify -prove trigger 0 fallback_automatic_local_miter

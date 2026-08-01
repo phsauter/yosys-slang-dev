@@ -1,0 +1,98 @@
+read_slang <<SV
+module multi_block_round2_gold (
+  input  logic [15:0] data_i,
+  input  logic [7:0]  mask_i,
+  input  logic        enable_i,
+  output logic [15:0] result_o
+);
+  logic [7:0] shared;
+
+  always_comb begin
+    shared = data_i[7:0];
+    shared[3:0] = shared[7:4] ^ mask_i[3:0];
+  end
+
+  always_comb begin
+    result_o = {data_i[15:8], shared};
+    if (enable_i)
+      result_o = {result_o[14:0], result_o[15]} ^ {mask_i, mask_i};
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module multi_block_round2_gate (
+  input  logic [15:0] data_i,
+  input  logic [7:0]  mask_i,
+  input  logic        enable_i,
+  output logic [15:0] result_o
+);
+  logic [7:0] shared;
+
+  always_comb begin
+    shared = data_i[7:0];
+    shared[3:0] = shared[7:4] ^ mask_i[3:0];
+  end
+
+  always_comb begin
+    result_o = {data_i[15:8], shared};
+    if (enable_i)
+      result_o = {result_o[14:0], result_o[15]} ^ {mask_i, mask_i};
+  end
+endmodule
+SV
+
+proc; opt; scc -expect 0
+miter -equiv -flatten multi_block_round2_gold multi_block_round2_gate multi_block_round2_miter
+sat -verify -prove trigger 0 multi_block_round2_miter
+
+design -reset
+
+read_slang <<SV
+module multi_block_fixpoint_gold (
+  input  logic a_i,
+  input  logic b_i,
+  output logic [1:0] result_o
+);
+  logic left;
+  logic right;
+
+  always_comb
+    left = a_i & right;
+
+  always_comb
+    right = b_i | left;
+
+  assign result_o = {left, right};
+endmodule
+SV
+
+proc; opt_clean
+select -module multi_block_fixpoint_gold
+scc -expect 1
+select -clear
+
+read_slang --use-update-map-lowering <<SV
+module multi_block_fixpoint_gate (
+  input  logic a_i,
+  input  logic b_i,
+  output logic [1:0] result_o
+);
+  logic left;
+  logic right;
+
+  always_comb
+    left = a_i & right;
+
+  always_comb
+    right = b_i | left;
+
+  assign result_o = {left, right};
+endmodule
+SV
+
+proc; opt_clean
+select -module multi_block_fixpoint_gate
+scc -expect 1

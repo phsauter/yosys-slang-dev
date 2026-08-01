@@ -347,9 +347,16 @@ bool expand_aggregate_write_impl(LValue &lvalue,
 		}
 
 		RTLIL::SigSpec next_shape;
-		if (!dynamic_select)
+		if (dynamic_select) {
+			// A dynamic packed range can touch any position in the parent.
+			// Shape masks are only activity bookkeeping, so conservatively
+			// mark the entire parent active; the real write mask below still
+			// carries the exact shifted selection.
+			next_shape = RTLIL::SigSpec(RTLIL::S1, range_sel->inner->bitsize);
+		} else {
 			next_shape = range_sel->resolver->shift_up(
 					shape_mask, false, range_sel->inner->bitsize);
+		}
 		return expand_aggregate_write_impl(*range_sel->inner,
 				range_sel->resolver->shift_up(rvalue, true, range_sel->inner->bitsize),
 				range_sel->resolver->shift_up(mask, false, range_sel->inner->bitsize),

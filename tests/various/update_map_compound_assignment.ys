@@ -1,0 +1,54 @@
+read_slang <<SV
+module compound_assignment_gold (
+  input  logic       allow_i,
+  input  logic       term_i,
+  input  logic [7:0] data_i,
+  output logic [9:0] result_o
+);
+  typedef struct packed {
+    logic       data_gnt;
+    logic [7:0] data;
+  } request_t;
+  request_t request;
+  logic valid;
+
+  always_comb begin
+    request = {1'b1, data_i};
+    valid = 1'b0;
+    request.data_gnt &= allow_i;
+    valid |= term_i;
+    result_o = {valid, request.data_gnt, request.data};
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module compound_assignment_gate (
+  input  logic       allow_i,
+  input  logic       term_i,
+  input  logic [7:0] data_i,
+  output logic [9:0] result_o
+);
+  typedef struct packed {
+    logic       data_gnt;
+    logic [7:0] data;
+  } request_t;
+  request_t request;
+  logic valid;
+
+  always_comb begin
+    request = {1'b1, data_i};
+    valid = 1'b0;
+    request.data_gnt &= allow_i;
+    valid |= term_i;
+    result_o = {valid, request.data_gnt, request.data};
+  end
+endmodule
+SV
+select -assert-none compound_assignment_gate/p:*
+
+proc; opt
+miter -equiv -flatten compound_assignment_gold compound_assignment_gate compound_assignment_miter
+sat -verify -prove trigger 0 compound_assignment_miter

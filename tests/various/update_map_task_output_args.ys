@@ -1,0 +1,45 @@
+read_slang <<SV
+module task_output_args_gold (
+  input  logic [7:0] data_i,
+  output logic [3:0] high_o,
+  output logic [3:0] low_o
+);
+  task automatic split(
+    input logic [7:0] value,
+    output logic [3:0] high,
+    output logic [3:0] low
+  );
+    high = value[7:4] ^ 4'h3;
+    low = value[3:0] ^ 4'hc;
+  endtask
+
+  always_comb
+    split(data_i, high_o, low_o);
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module task_output_args_gate (
+  input  logic [7:0] data_i,
+  output logic [3:0] high_o,
+  output logic [3:0] low_o
+);
+  task automatic split(
+    input logic [7:0] value,
+    output logic [3:0] high,
+    output logic [3:0] low
+  );
+    high = value[7:4] ^ 4'h3;
+    low = value[3:0] ^ 4'hc;
+  endtask
+
+  always_comb
+    split(data_i, high_o, low_o);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten task_output_args_gold task_output_args_gate task_output_args_miter
+sat -verify -prove trigger 0 task_output_args_miter

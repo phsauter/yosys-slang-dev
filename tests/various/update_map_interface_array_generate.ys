@@ -1,0 +1,75 @@
+read_slang --top interface_array_generate_gold <<SV
+interface array_bus_gold;
+  logic       valid;
+  logic [7:0] data;
+  modport source(output valid, data);
+  modport target(input valid, data);
+endinterface
+
+module array_leaf_gold #(
+  parameter logic [7:0] OFFSET = '0
+) (
+  array_bus_gold.target bus,
+  output logic [7:0] data_o
+);
+  always_comb begin
+    data_o = '0;
+    if (bus.valid)
+      data_o = bus.data + OFFSET;
+  end
+endmodule
+
+module interface_array_generate_gold (
+  input  logic [1:0]       valid_i,
+  input  logic [1:0][7:0]  data_i,
+  output logic [1:0][7:0]  data_o
+);
+  array_bus_gold bus[2]();
+  for (genvar i = 0; i < 2; i++) begin : gen_channel
+    assign bus[i].valid = valid_i[i];
+    assign bus[i].data = data_i[i];
+    array_leaf_gold #(.OFFSET(i + 1)) leaf(bus[i], data_o[i]);
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --top interface_array_generate_gate --use-update-map-lowering <<SV
+interface array_bus_gate;
+  logic       valid;
+  logic [7:0] data;
+  modport source(output valid, data);
+  modport target(input valid, data);
+endinterface
+
+module array_leaf_gate #(
+  parameter logic [7:0] OFFSET = '0
+) (
+  array_bus_gate.target bus,
+  output logic [7:0] data_o
+);
+  always_comb begin
+    data_o = '0;
+    if (bus.valid)
+      data_o = bus.data + OFFSET;
+  end
+endmodule
+
+module interface_array_generate_gate (
+  input  logic [1:0]       valid_i,
+  input  logic [1:0][7:0]  data_i,
+  output logic [1:0][7:0]  data_o
+);
+  array_bus_gate bus[2]();
+  for (genvar i = 0; i < 2; i++) begin : gen_channel
+    assign bus[i].valid = valid_i[i];
+    assign bus[i].data = data_i[i];
+    array_leaf_gate #(.OFFSET(i + 1)) leaf(bus[i], data_o[i]);
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten interface_array_generate_gold interface_array_generate_gate interface_array_generate_miter
+sat -verify -prove trigger 0 interface_array_generate_miter

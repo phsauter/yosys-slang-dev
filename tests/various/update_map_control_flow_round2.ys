@@ -1,0 +1,127 @@
+read_slang <<SV
+module control_flow_round2_gold (
+  input  logic [15:0] seed_i,
+  input  logic [15:0] patch_i,
+  input  logic [1:0]  op_i,
+  input  logic        select_i,
+  output logic [63:0] result_o
+);
+  function automatic logic [15:0] early_patch(
+    input logic [15:0] value,
+    input logic [15:0] patch,
+    input logic stop
+  );
+    early_patch = value;
+    early_patch[3:0] = patch[3:0];
+    if (stop)
+      return early_patch;
+    early_patch[15:8] = patch[15:8];
+    return early_patch ^ 16'h1021;
+  endfunction
+
+  logic [15:0] x;
+  always_comb begin
+    x = seed_i;
+    if (select_i)
+      x[7:0] = patch_i[7:0];
+    result_o[15:0] = x;
+
+    casez (op_i)
+      2'b?1: x[11:4] = patch_i[15:8];
+      2'b1?: x = x ^ 16'hca5a;
+      default: x[15:12] = patch_i[3:0];
+    endcase
+    result_o[31:16] = x;
+
+    for (int outer = 0; outer < 2; outer++) begin
+      for (int inner = 0; inner < 4; inner++) begin
+        if (select_i ^ outer[0] ^ inner[0])
+          x[inner +: 2] = x[15-inner -: 2] ^ patch_i[inner +: 2];
+      end
+    end
+    result_o[47:32] = x;
+    result_o[63:48] = early_patch(x, patch_i, select_i);
+  end
+endmodule
+SV
+
+proc; opt
+
+logger -expect log "slang-update-map falling back to process lowering module=control_flow_round2_gate reason=unsupported assignment shape" 1
+read_slang --use-update-map-lowering <<SV
+module control_flow_round2_gate (
+  input  logic [15:0] seed_i,
+  input  logic [15:0] patch_i,
+  input  logic [1:0]  op_i,
+  input  logic        select_i,
+  output logic [63:0] result_o
+);
+  function automatic logic [15:0] early_patch(
+    input logic [15:0] value,
+    input logic [15:0] patch,
+    input logic stop
+  );
+    early_patch = value;
+    early_patch[3:0] = patch[3:0];
+    if (stop)
+      return early_patch;
+    early_patch[15:8] = patch[15:8];
+    return early_patch ^ 16'h1021;
+  endfunction
+
+  logic [15:0] x;
+  always_comb begin
+    x = seed_i;
+    if (select_i)
+      x[7:0] = patch_i[7:0];
+    result_o[15:0] = x;
+
+    casez (op_i)
+      2'b?1: x[11:4] = patch_i[15:8];
+      2'b1?: x = x ^ 16'hca5a;
+      default: x[15:12] = patch_i[3:0];
+    endcase
+    result_o[31:16] = x;
+
+    for (int outer = 0; outer < 2; outer++) begin
+      for (int inner = 0; inner < 4; inner++) begin
+        if (select_i ^ outer[0] ^ inner[0])
+          x[inner +: 2] = x[15-inner -: 2] ^ patch_i[inner +: 2];
+      end
+    end
+    result_o[47:32] = x;
+    result_o[63:48] = early_patch(x, patch_i, select_i);
+  end
+endmodule
+SV
+
+proc; opt; scc -expect 0
+miter -equiv -flatten -make_outputs control_flow_round2_gold control_flow_round2_gate control_flow_round2_miter
+sat -verify -prove trigger 0 -show-inputs -show-outputs control_flow_round2_miter
+
+design -reset
+
+read_slang --use-update-map-lowering <<SV
+module latch_paths_round2 (
+  input  logic       enable_i,
+  input  logic [7:0] data_i,
+  output logic [7:0] latched_o,
+  output logic [7:0] complete_o
+);
+  always_latch begin
+    if (enable_i)
+      latched_o = data_i;
+  end
+
+  always_comb begin
+    complete_o = data_i;
+    if (enable_i)
+      complete_o[3:0] = ~data_i[3:0];
+    else
+      complete_o[7:4] = ~data_i[7:4];
+  end
+endmodule
+SV
+
+proc
+select -assert-count 8 latch_paths_round2/t:\$dlatch

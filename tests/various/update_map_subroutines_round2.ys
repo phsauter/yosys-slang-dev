@@ -1,0 +1,227 @@
+read_slang <<SV
+module subroutines_round2_gold (
+  input  logic [15:0] first_i,
+  input  logic [15:0] second_i,
+  input  logic        select_i,
+  output logic [79:0] result_o
+);
+  typedef struct packed {
+    logic [3:0] tag;
+    logic [11:0] payload;
+  } record_t;
+
+  function automatic logic [15:0] update_args(
+    input logic [15:0] value,
+    input logic [15:0] accumulator_in,
+    output logic [15:0] accumulator,
+    output logic [15:0] side
+  );
+    accumulator = accumulator_in + value;
+    side = {accumulator[7:0], value[15:8]} ^ 16'h3c5a;
+    return accumulator ^ side;
+  endfunction
+
+  function automatic record_t chain_0(input record_t value);
+    value.payload[3:0] = value.payload[3:0] + value.tag;
+    return value;
+  endfunction
+
+  function automatic record_t chain_1(input record_t value);
+    value = chain_0(value);
+    value.tag = value.tag ^ value.payload[7:4];
+    return value;
+  endfunction
+
+  function automatic record_t chain_2(input record_t value);
+    return chain_1(chain_0(value));
+  endfunction
+
+  task automatic write_roots(
+    input logic [15:0] value,
+    input logic [7:0] low_in,
+    output logic [7:0] high,
+    output logic [7:0] low
+  );
+    high = value[15:8] ^ low_in;
+    low = value[7:0] + high;
+  endtask
+
+  logic [15:0] accumulator;
+  logic [15:0] side;
+  logic [15:0] value;
+  logic [7:0] high;
+  logic [7:0] low;
+  record_t record;
+
+  always_comb begin
+    value = update_args(second_i, first_i, accumulator, side);
+    record = chain_2(record_t'({first_i[15:12], second_i[11:0]}));
+    low = select_i ? first_i[7:0] : second_i[7:0];
+    write_roots(value, low, high, low);
+    result_o = {accumulator, side, value, record, high, low};
+  end
+endmodule
+
+module function_struct_chain_round2_gold (
+  input  logic [15:0] first_i,
+  input  logic [15:0] second_i,
+  output logic [63:0] result_o
+);
+  typedef struct packed {
+    logic [3:0] tag;
+    logic [11:0] payload;
+  } record_t;
+
+  function automatic logic [15:0] update_args(
+    input logic [15:0] value,
+    input logic [15:0] accumulator_in,
+    output logic [15:0] accumulator,
+    output logic [15:0] side
+  );
+    accumulator = accumulator_in + value;
+    side = {accumulator[7:0], value[15:8]} ^ 16'h3c5a;
+    return accumulator ^ side;
+  endfunction
+
+  function automatic record_t chain_0(input record_t value);
+    value.payload[3:0] = value.payload[3:0] + value.tag;
+    return value;
+  endfunction
+  function automatic record_t chain_1(input record_t value);
+    value = chain_0(value);
+    value.tag = value.tag ^ value.payload[7:4];
+    return value;
+  endfunction
+  function automatic record_t chain_2(input record_t value);
+    return chain_1(chain_0(value));
+  endfunction
+
+  logic [15:0] accumulator;
+  logic [15:0] side;
+  logic [15:0] value;
+  record_t record;
+  always_comb begin
+    value = update_args(second_i, first_i, accumulator, side);
+    record = chain_2(record_t'({first_i[15:12], second_i[11:0]}));
+    result_o = {accumulator, side, value, record};
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module subroutines_round2_gate (
+  input  logic [15:0] first_i,
+  input  logic [15:0] second_i,
+  input  logic        select_i,
+  output logic [79:0] result_o
+);
+  typedef struct packed {
+    logic [3:0] tag;
+    logic [11:0] payload;
+  } record_t;
+
+  function automatic logic [15:0] update_args(
+    input logic [15:0] value,
+    input logic [15:0] accumulator_in,
+    output logic [15:0] accumulator,
+    output logic [15:0] side
+  );
+    accumulator = accumulator_in + value;
+    side = {accumulator[7:0], value[15:8]} ^ 16'h3c5a;
+    return accumulator ^ side;
+  endfunction
+
+  function automatic record_t chain_0(input record_t value);
+    value.payload[3:0] = value.payload[3:0] + value.tag;
+    return value;
+  endfunction
+
+  function automatic record_t chain_1(input record_t value);
+    value = chain_0(value);
+    value.tag = value.tag ^ value.payload[7:4];
+    return value;
+  endfunction
+
+  function automatic record_t chain_2(input record_t value);
+    return chain_1(chain_0(value));
+  endfunction
+
+  task automatic write_roots(
+    input logic [15:0] value,
+    input logic [7:0] low_in,
+    output logic [7:0] high,
+    output logic [7:0] low
+  );
+    high = value[15:8] ^ low_in;
+    low = value[7:0] + high;
+  endtask
+
+  logic [15:0] accumulator;
+  logic [15:0] side;
+  logic [15:0] value;
+  logic [7:0] high;
+  logic [7:0] low;
+  record_t record;
+
+  always_comb begin
+    value = update_args(second_i, first_i, accumulator, side);
+    record = chain_2(record_t'({first_i[15:12], second_i[11:0]}));
+    low = select_i ? first_i[7:0] : second_i[7:0];
+    write_roots(value, low, high, low);
+    result_o = {accumulator, side, value, record, high, low};
+  end
+endmodule
+
+module function_struct_chain_round2_gate (
+  input  logic [15:0] first_i,
+  input  logic [15:0] second_i,
+  output logic [63:0] result_o
+);
+  typedef struct packed {
+    logic [3:0] tag;
+    logic [11:0] payload;
+  } record_t;
+
+  function automatic logic [15:0] update_args(
+    input logic [15:0] value,
+    input logic [15:0] accumulator_in,
+    output logic [15:0] accumulator,
+    output logic [15:0] side
+  );
+    accumulator = accumulator_in + value;
+    side = {accumulator[7:0], value[15:8]} ^ 16'h3c5a;
+    return accumulator ^ side;
+  endfunction
+
+  function automatic record_t chain_0(input record_t value);
+    value.payload[3:0] = value.payload[3:0] + value.tag;
+    return value;
+  endfunction
+  function automatic record_t chain_1(input record_t value);
+    value = chain_0(value);
+    value.tag = value.tag ^ value.payload[7:4];
+    return value;
+  endfunction
+  function automatic record_t chain_2(input record_t value);
+    return chain_1(chain_0(value));
+  endfunction
+
+  logic [15:0] accumulator;
+  logic [15:0] side;
+  logic [15:0] value;
+  record_t record;
+  always_comb begin
+    value = update_args(second_i, first_i, accumulator, side);
+    record = chain_2(record_t'({first_i[15:12], second_i[11:0]}));
+    result_o = {accumulator, side, value, record};
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten subroutines_round2_gold subroutines_round2_gate subroutines_round2_miter
+sat -verify -prove trigger 0 subroutines_round2_miter
+miter -equiv -flatten function_struct_chain_round2_gold function_struct_chain_round2_gate function_struct_chain_round2_miter
+sat -verify -prove trigger 0 function_struct_chain_round2_miter

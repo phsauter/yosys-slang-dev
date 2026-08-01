@@ -1,0 +1,39 @@
+read_slang <<EOF
+module automatic_local_gold (
+  input  logic       en_i,
+  input  logic [7:0] data_i,
+  output logic [7:0] data_o
+);
+  always_comb begin : select_data
+    automatic logic [7:0] selected;
+    if (en_i)
+      selected = data_i;
+    else
+      selected = '0;
+    data_o = selected;
+  end
+endmodule
+EOF
+
+proc; opt
+
+read_slang --use-update-map-lowering <<EOF
+module automatic_local_gate (
+  input  logic       en_i,
+  input  logic [7:0] data_i,
+  output logic [7:0] data_o
+);
+  always_comb begin : select_data
+    automatic logic [7:0] selected;
+    if (en_i)
+      selected = data_i;
+    else
+      selected = '0;
+    data_o = selected;
+  end
+endmodule
+EOF
+
+proc; opt
+miter -equiv -flatten automatic_local_gold automatic_local_gate automatic_local_miter
+sat -verify -prove trigger 0 automatic_local_miter

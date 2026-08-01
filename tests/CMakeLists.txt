@@ -73,8 +73,42 @@ set(ALL_TESTS
     various/unknown_cells.ys
     various/toplevel_intf_unsupported.ys
     various/update_map.ys
+    various/update_map_automatic_local.ys
+    various/update_map_control_flow_round2.ys
+    various/update_map_compound_assignment.ys
+    various/update_map_datatypes_round2.ys
+    various/update_map_enum_struct_case.ys
+    various/update_map_function_multi_output_args.ys
+    various/update_map_function_nested_calls.ys
+    various/update_map_function_output_arg.ys
+    various/update_map_function_static_local.ys
+    various/update_map_function_static_expression_round2.ys
+    various/update_map_function_struct_return.ys
+    various/update_map_function_upward_ref.ys
+    various/update_map_function_upward_ref_for_init.ys
+    various/update_map_function_upward_ref_for_step.ys
+    various/update_map_function_upward_ref_local_init.ys
+    various/update_map_fallback_automatic_local.ys
+    various/update_map_generic_interface.ys
+    various/update_map_instance_array.ys
+    various/update_map_interface_array_generate.ys
+    various/update_map_interface_modport.ys
     various/update_map_masked_view.ys
     various/update_map_lowering.ys
+    various/update_map_multidim_unpacked_struct_array.ys
+    various/update_map_multi_block_round2.ys
+    various/update_map_nested_automatic_locals.ys
+    various/update_map_packed_struct_dynamic_lhs.ys
+    various/update_map_packed_union_members.ys
+    various/update_map_pending_rhs_read.ys
+    various/update_map_read_after_write_round2.ys
+    various/update_map_signed_typedef_partselect.ys
+    various/update_map_single_bit_struct_bits.ys
+    various/update_map_subroutines_round2.ys
+    various/update_map_task_output_args.ys
+    various/update_map_unpacked_array_of_struct.ys
+    various/update_map_unpacked_struct.ys
+    various/update_map_unpacked_union.ys
     various/wait_test.ys
     various/expect_test.ys
     various/program_test.ys

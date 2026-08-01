@@ -1,0 +1,35 @@
+read_slang <<SV
+module pending_rhs_read_gold (
+  input  logic data_i,
+  input  logic invert_i,
+  output logic data_o
+);
+  logic temporary;
+  always_comb begin
+    temporary = data_i;
+    temporary = temporary ^ invert_i;
+    data_o = temporary;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module pending_rhs_read_gate (
+  input  logic data_i,
+  input  logic invert_i,
+  output logic data_o
+);
+  logic temporary;
+  always_comb begin
+    temporary = data_i;
+    temporary = temporary ^ invert_i;
+    data_o = temporary;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten pending_rhs_read_gold pending_rhs_read_gate pending_rhs_read_miter
+sat -verify -prove trigger 0 pending_rhs_read_miter

@@ -1,0 +1,49 @@
+read_slang <<SV
+module function_multi_output_args_gold (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [3:0] high_o,
+  output logic [3:0] low_o
+);
+  function automatic logic [7:0] split(
+    input logic [7:0] value,
+    output logic [3:0] high,
+    output logic [3:0] low
+  );
+    high = value[7:4] ^ 4'ha;
+    low = value[3:0] ^ 4'h5;
+    return {low, high};
+  endfunction
+
+  always_comb
+    value_o = split(data_i, high_o, low_o);
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_multi_output_args_gate (
+  input  logic [7:0] data_i,
+  output logic [7:0] value_o,
+  output logic [3:0] high_o,
+  output logic [3:0] low_o
+);
+  function automatic logic [7:0] split(
+    input logic [7:0] value,
+    output logic [3:0] high,
+    output logic [3:0] low
+  );
+    high = value[7:4] ^ 4'ha;
+    low = value[3:0] ^ 4'h5;
+    return {low, high};
+  endfunction
+
+  always_comb
+    value_o = split(data_i, high_o, low_o);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_multi_output_args_gold function_multi_output_args_gate function_multi_output_args_miter
+sat -verify -prove trigger 0 function_multi_output_args_miter

@@ -1,0 +1,129 @@
+read_slang <<SV
+module read_after_write_round2_gold (
+  input  logic [15:0] seed_i,
+  input  logic [15:0] patch_i,
+  input  logic [31:0] array_i,
+  input  logic [1:0]  index_i,
+  output logic [95:0] result_o
+);
+  typedef struct packed {
+    logic [7:0] high;
+    logic [7:0] low;
+  } pair_t;
+
+  function automatic logic [15:0] rotate(input logic [15:0] value);
+    return {value[12:0], value[15:13]};
+  endfunction
+
+  function automatic logic [15:0] scramble(input logic [15:0] value);
+    return (value ^ 16'h5a3c) + 16'h0101;
+  endfunction
+
+  logic [15:0] x;
+  logic [3:0][7:0] words;
+  logic [1:0] same_index;
+  pair_t pair;
+
+  always_comb begin
+    x = seed_i;
+    x[3:0] = patch_i[3:0];
+    result_o[15:0] = x;
+
+    x = patch_i;
+    result_o[23:16] = x[11:4];
+    x[11:4] = seed_i[7:0];
+    result_o[39:24] = x;
+
+    pair = pair_t'(seed_i);
+    pair.high[5:2] = patch_i[3:0];
+    pair.low = pair.high ^ seed_i[7:0];
+    result_o[55:40] = pair;
+
+    words = array_i;
+    words[2] = patch_i[7:0];
+    result_o[63:56] = words[2];
+
+    same_index = index_i;
+    words[index_i] = seed_i[7:0] ^ patch_i[7:0];
+    result_o[71:64] = words[same_index];
+
+    x = seed_i;
+    x = rotate(x);
+    x = scramble(x);
+    for (int k = 0; k < 4; k++) begin
+      x = rotate(x);
+      x[k +: 2] = x[15-k -: 2] ^ patch_i[k +: 2];
+    end
+    result_o[87:72] = x;
+    result_o[95:88] = words[0] ^ words[1] ^ words[2] ^ words[3];
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module read_after_write_round2_gate (
+  input  logic [15:0] seed_i,
+  input  logic [15:0] patch_i,
+  input  logic [31:0] array_i,
+  input  logic [1:0]  index_i,
+  output logic [95:0] result_o
+);
+  typedef struct packed {
+    logic [7:0] high;
+    logic [7:0] low;
+  } pair_t;
+
+  function automatic logic [15:0] rotate(input logic [15:0] value);
+    return {value[12:0], value[15:13]};
+  endfunction
+
+  function automatic logic [15:0] scramble(input logic [15:0] value);
+    return (value ^ 16'h5a3c) + 16'h0101;
+  endfunction
+
+  logic [15:0] x;
+  logic [3:0][7:0] words;
+  logic [1:0] same_index;
+  pair_t pair;
+
+  always_comb begin
+    x = seed_i;
+    x[3:0] = patch_i[3:0];
+    result_o[15:0] = x;
+
+    x = patch_i;
+    result_o[23:16] = x[11:4];
+    x[11:4] = seed_i[7:0];
+    result_o[39:24] = x;
+
+    pair = pair_t'(seed_i);
+    pair.high[5:2] = patch_i[3:0];
+    pair.low = pair.high ^ seed_i[7:0];
+    result_o[55:40] = pair;
+
+    words = array_i;
+    words[2] = patch_i[7:0];
+    result_o[63:56] = words[2];
+
+    same_index = index_i;
+    words[index_i] = seed_i[7:0] ^ patch_i[7:0];
+    result_o[71:64] = words[same_index];
+
+    x = seed_i;
+    x = rotate(x);
+    x = scramble(x);
+    for (int k = 0; k < 4; k++) begin
+      x = rotate(x);
+      x[k +: 2] = x[15-k -: 2] ^ patch_i[k +: 2];
+    end
+    result_o[87:72] = x;
+    result_o[95:88] = words[0] ^ words[1] ^ words[2] ^ words[3];
+  end
+endmodule
+SV
+
+proc; opt; scc -expect 0
+miter -equiv -flatten read_after_write_round2_gold read_after_write_round2_gate read_after_write_round2_miter
+sat -verify -prove trigger 0 read_after_write_round2_miter

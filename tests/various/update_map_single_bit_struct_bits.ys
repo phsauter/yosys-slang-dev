@@ -1,0 +1,49 @@
+read_slang <<SV
+module single_bit_struct_bits_gold (
+  input  logic data_i,
+  input  logic select_i,
+  output logic data_o
+);
+  typedef struct packed {
+    logic only;
+  } one_bit_t;
+  localparam int WIDTH = $bits(one_bit_t);
+  one_bit_t value;
+  logic [WIDTH-1:0] raw;
+
+  always_comb begin
+    raw = data_i;
+    value = one_bit_t'(raw);
+    value.only = value.only ^ select_i;
+    data_o = value.only;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module single_bit_struct_bits_gate (
+  input  logic data_i,
+  input  logic select_i,
+  output logic data_o
+);
+  typedef struct packed {
+    logic only;
+  } one_bit_t;
+  localparam int WIDTH = $bits(one_bit_t);
+  one_bit_t value;
+  logic [WIDTH-1:0] raw;
+
+  always_comb begin
+    raw = data_i;
+    value = one_bit_t'(raw);
+    value.only = value.only ^ select_i;
+    data_o = value.only;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten single_bit_struct_bits_gold single_bit_struct_bits_gate single_bit_struct_bits_miter
+sat -verify -prove trigger 0 single_bit_struct_bits_miter

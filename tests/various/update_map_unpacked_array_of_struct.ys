@@ -1,0 +1,53 @@
+read_slang <<SV
+module unpacked_array_of_struct_gold (
+  input  logic [1:0][7:0] data_i,
+  input  logic             index_i,
+  input  logic [2:0]       base_i,
+  input  logic [2:0]       patch_i,
+  output logic [1:0][9:0] data_o
+);
+  typedef struct packed {
+    logic [1:0] tag;
+    logic [7:0] data;
+  } item_t;
+  item_t items [2];
+
+  always_comb begin
+    items[0] = item_t'({2'd0, data_i[0]});
+    items[1] = item_t'({2'd1, data_i[1]});
+    items[index_i].data[base_i +: 3] = patch_i;
+    data_o[0] = items[0];
+    data_o[1] = items[1];
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module unpacked_array_of_struct_gate (
+  input  logic [1:0][7:0] data_i,
+  input  logic             index_i,
+  input  logic [2:0]       base_i,
+  input  logic [2:0]       patch_i,
+  output logic [1:0][9:0] data_o
+);
+  typedef struct packed {
+    logic [1:0] tag;
+    logic [7:0] data;
+  } item_t;
+  item_t items [2];
+
+  always_comb begin
+    items[0] = item_t'({2'd0, data_i[0]});
+    items[1] = item_t'({2'd1, data_i[1]});
+    items[index_i].data[base_i +: 3] = patch_i;
+    data_o[0] = items[0];
+    data_o[1] = items[1];
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten unpacked_array_of_struct_gold unpacked_array_of_struct_gate unpacked_array_of_struct_miter
+sat -verify -prove trigger 0 unpacked_array_of_struct_miter

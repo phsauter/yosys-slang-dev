@@ -1,0 +1,61 @@
+read_slang <<SV
+module packed_union_members_gold (
+  input  logic [15:0] data_i,
+  input  logic [1:0]  sel_i,
+  input  logic        swap_i,
+  output logic [15:0] data_o
+);
+  typedef union packed {
+    logic [15:0] word;
+    struct packed {
+      logic [7:0] high;
+      logic [7:0] low;
+    } halves;
+  } word_u;
+  word_u value;
+
+  always_comb begin
+    value.word = data_i;
+    if (swap_i) begin
+      value.halves.high = data_i[7:0];
+      value.halves.low = data_i[15:8];
+    end
+    value.word[sel_i * 4 +: 4] = 4'ha;
+    data_o = value.word;
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module packed_union_members_gate (
+  input  logic [15:0] data_i,
+  input  logic [1:0]  sel_i,
+  input  logic        swap_i,
+  output logic [15:0] data_o
+);
+  typedef union packed {
+    logic [15:0] word;
+    struct packed {
+      logic [7:0] high;
+      logic [7:0] low;
+    } halves;
+  } word_u;
+  word_u value;
+
+  always_comb begin
+    value.word = data_i;
+    if (swap_i) begin
+      value.halves.high = data_i[7:0];
+      value.halves.low = data_i[15:8];
+    end
+    value.word[sel_i * 4 +: 4] = 4'ha;
+    data_o = value.word;
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten packed_union_members_gold packed_union_members_gate packed_union_members_miter
+sat -verify -prove trigger 0 packed_union_members_miter

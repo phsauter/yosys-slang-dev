@@ -1,0 +1,45 @@
+read_slang <<SV
+module function_upward_ref_for_init_gold (
+  input  logic       start_i,
+  input  logic [1:0] data_i,
+  output logic [1:0] data_o,
+  output logic       side_o
+);
+  function automatic int start_index(input logic value);
+    side_o = ~value;
+    return 0;
+  endfunction
+
+  always_comb begin
+    data_o = '0;
+    for (int i = start_index(start_i); i < 2; i++)
+      data_o[i] = data_i[i];
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_upward_ref_for_init_gate (
+  input  logic       start_i,
+  input  logic [1:0] data_i,
+  output logic [1:0] data_o,
+  output logic       side_o
+);
+  function automatic int start_index(input logic value);
+    side_o = ~value;
+    return 0;
+  endfunction
+
+  always_comb begin
+    data_o = '0;
+    for (int i = start_index(start_i); i < 2; i++)
+      data_o[i] = data_i[i];
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_upward_ref_for_init_gold function_upward_ref_for_init_gate function_upward_ref_for_init_miter
+sat -verify -prove trigger 0 function_upward_ref_for_init_miter

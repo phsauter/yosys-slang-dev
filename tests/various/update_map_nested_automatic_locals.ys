@@ -1,0 +1,45 @@
+read_slang <<SV
+module nested_automatic_locals_gold (
+  input  logic [7:0] data_i,
+  input  logic [7:0] mask_i,
+  input  logic       select_i,
+  output logic [7:0] data_o
+);
+  always_comb begin : outer_scope
+    automatic logic [7:0] outer_value = data_i + 8'd1;
+    if (select_i) begin : inner_scope
+      automatic logic [7:0] inner_value = outer_value ^ mask_i;
+      data_o = inner_value;
+    end else begin : alternate_scope
+      automatic logic [7:0] inner_value = outer_value - mask_i;
+      data_o = inner_value;
+    end
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module nested_automatic_locals_gate (
+  input  logic [7:0] data_i,
+  input  logic [7:0] mask_i,
+  input  logic       select_i,
+  output logic [7:0] data_o
+);
+  always_comb begin : outer_scope
+    automatic logic [7:0] outer_value = data_i + 8'd1;
+    if (select_i) begin : inner_scope
+      automatic logic [7:0] inner_value = outer_value ^ mask_i;
+      data_o = inner_value;
+    end else begin : alternate_scope
+      automatic logic [7:0] inner_value = outer_value - mask_i;
+      data_o = inner_value;
+    end
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten nested_automatic_locals_gold nested_automatic_locals_gate nested_automatic_locals_miter
+sat -verify -prove trigger 0 nested_automatic_locals_miter

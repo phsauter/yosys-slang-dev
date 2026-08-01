@@ -1,0 +1,71 @@
+read_slang --top interface_modport_gold <<SV
+interface modport_bus_gold;
+  logic       valid;
+  logic [7:0] request;
+  logic [7:0] response;
+  modport target(input valid, request, output response);
+endinterface
+
+module modport_leaf_gold(
+  modport_bus_gold.target bus,
+  input logic [7:0] mask_i
+);
+  always_comb begin
+    bus.response = '0;
+    if (bus.valid)
+      bus.response = bus.request ^ mask_i;
+  end
+endmodule
+
+module interface_modport_gold (
+  input  logic       valid_i,
+  input  logic [7:0] request_i,
+  input  logic [7:0] mask_i,
+  output logic [7:0] response_o
+);
+  modport_bus_gold bus();
+  assign bus.valid = valid_i;
+  assign bus.request = request_i;
+  assign response_o = bus.response;
+  modport_leaf_gold leaf(bus, mask_i);
+endmodule
+SV
+
+proc; opt
+
+read_slang --top interface_modport_gate --use-update-map-lowering <<SV
+interface modport_bus_gate;
+  logic       valid;
+  logic [7:0] request;
+  logic [7:0] response;
+  modport target(input valid, request, output response);
+endinterface
+
+module modport_leaf_gate(
+  modport_bus_gate.target bus,
+  input logic [7:0] mask_i
+);
+  always_comb begin
+    bus.response = '0;
+    if (bus.valid)
+      bus.response = bus.request ^ mask_i;
+  end
+endmodule
+
+module interface_modport_gate (
+  input  logic       valid_i,
+  input  logic [7:0] request_i,
+  input  logic [7:0] mask_i,
+  output logic [7:0] response_o
+);
+  modport_bus_gate bus();
+  assign bus.valid = valid_i;
+  assign bus.request = request_i;
+  assign response_o = bus.response;
+  modport_leaf_gate leaf(bus, mask_i);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten interface_modport_gold interface_modport_gate interface_modport_miter
+sat -verify -prove trigger 0 interface_modport_miter

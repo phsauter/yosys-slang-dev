@@ -1,0 +1,55 @@
+read_slang <<SV
+module unpacked_struct_gold (
+  input  logic [3:0] high_i,
+  input  logic [3:0] low_i,
+  input  logic       swap_i,
+  output logic [7:0] data_o
+);
+  typedef struct {
+    logic [3:0] high;
+    logic [3:0] low;
+  } nibbles_t;
+  nibbles_t value;
+
+  always_comb begin
+    value.high = high_i;
+    value.low = low_i;
+    if (swap_i) begin
+      value.high = low_i;
+      value.low = high_i;
+    end
+    data_o = {value.high, value.low};
+  end
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module unpacked_struct_gate (
+  input  logic [3:0] high_i,
+  input  logic [3:0] low_i,
+  input  logic       swap_i,
+  output logic [7:0] data_o
+);
+  typedef struct {
+    logic [3:0] high;
+    logic [3:0] low;
+  } nibbles_t;
+  nibbles_t value;
+
+  always_comb begin
+    value.high = high_i;
+    value.low = low_i;
+    if (swap_i) begin
+      value.high = low_i;
+      value.low = high_i;
+    end
+    data_o = {value.high, value.low};
+  end
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten unpacked_struct_gold unpacked_struct_gate unpacked_struct_miter
+sat -verify -prove trigger 0 unpacked_struct_miter

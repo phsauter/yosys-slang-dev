@@ -1,0 +1,63 @@
+read_slang <<SV
+module function_nested_calls_gold (
+  input  logic [15:0] data_i,
+  output logic [15:0] data_o
+);
+  function automatic logic [15:0] level_0(input logic [15:0] value);
+    return {value[14:0], value[15]};
+  endfunction
+  function automatic logic [15:0] level_1(input logic [15:0] value);
+    return level_0(value) ^ 16'h1021;
+  endfunction
+  function automatic logic [15:0] level_2(input logic [15:0] value);
+    return level_1(value + 16'h0101);
+  endfunction
+  function automatic logic [15:0] level_3(input logic [15:0] value);
+    return level_2(level_1(value));
+  endfunction
+  function automatic logic [15:0] level_4(input logic [15:0] value);
+    return level_3(value) ^ level_2(~value);
+  endfunction
+  function automatic logic [15:0] level_5(input logic [15:0] value);
+    return level_4(level_0(value));
+  endfunction
+
+  always_comb
+    data_o = level_5(data_i);
+endmodule
+SV
+
+proc; opt
+
+read_slang --use-update-map-lowering <<SV
+module function_nested_calls_gate (
+  input  logic [15:0] data_i,
+  output logic [15:0] data_o
+);
+  function automatic logic [15:0] level_0(input logic [15:0] value);
+    return {value[14:0], value[15]};
+  endfunction
+  function automatic logic [15:0] level_1(input logic [15:0] value);
+    return level_0(value) ^ 16'h1021;
+  endfunction
+  function automatic logic [15:0] level_2(input logic [15:0] value);
+    return level_1(value + 16'h0101);
+  endfunction
+  function automatic logic [15:0] level_3(input logic [15:0] value);
+    return level_2(level_1(value));
+  endfunction
+  function automatic logic [15:0] level_4(input logic [15:0] value);
+    return level_3(value) ^ level_2(~value);
+  endfunction
+  function automatic logic [15:0] level_5(input logic [15:0] value);
+    return level_4(level_0(value));
+  endfunction
+
+  always_comb
+    data_o = level_5(data_i);
+endmodule
+SV
+
+proc; opt
+miter -equiv -flatten function_nested_calls_gold function_nested_calls_gate function_nested_calls_miter
+sat -verify -prove trigger 0 function_nested_calls_miter
